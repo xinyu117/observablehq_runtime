@@ -90,6 +90,23 @@ function runtime_computeSoon() {
   return new Promise(frame).then(() => this._disposed ? undefined : this._computeNow());
 }
 
+/*
+原始 async 写法
+async function foo() {
+  const a = await bar();
+  return a + 1;
+}
+等价 Promise 写法:
+function foo() {
+  return Promise.resolve(bar()).then(a => {
+    return a + 1;
+  });
+}
+*/
+// await x → Promise.resolve(x).then(...)
+// async function → 一定返回 Promise
+// 因此，postcompute(value, promise).then(() => runtime._precompute(recompute));的意思是：runtime._precompute(recompute)的执行是在，
+// runtime_defer(3)之后的变量计算之后
 async function runtime_computeNow() {
   let queue = [],
       variables,
