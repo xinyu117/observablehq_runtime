@@ -1,0 +1,92 @@
+flowchart TB
+
+%% =====================
+%% 分层
+%% =====================
+subgraph L1[触发层 Trigger Layer]
+    A1[变量变更 / define]
+    A2[generator yield]
+    A3[外部事件]
+end
+
+subgraph L2[调度层 Scheduler Layer]
+    B1[_dirty Set]
+    B2[_updates Set]
+    B3[_compute]
+    B4[_computeSoon]
+    B5[frame (rAF / setTimeout)]
+    B6[Promise.then 微任务]
+end
+
+subgraph L3[计算层 Compute Layer]
+    C1[_computeNow]
+    C2[precompute queue]
+    C3[runtime_defer(微任务链)]
+    C4[可达性分析]
+    C5[拓扑排序 (indegree)]
+    C6[环检测]
+end
+
+subgraph L4[执行层 Execution Layer]
+    D1[variable_compute]
+    D2[Promise链 init→define→generate]
+    D3[generator.next]
+    D4[postcompute]
+end
+
+subgraph L5[数据层 Data Layer]
+    E1[_value]
+    E2[_promise]
+    E3[_version]
+    E4[_inputs/_outputs]
+end
+
+%% =====================
+%% 主流程
+%% =====================
+A1 --> B1
+A2 --> B2
+A3 --> B3
+
+B1 --> B3
+B2 --> B3
+
+B3 --> B4
+B4 --> B5
+B5 --> B6
+B6 --> C1
+
+%% =====================
+%% computeNow 内部
+%% =====================
+C1 --> C2
+C2 --> C3
+C3 --> C4
+C4 --> C5
+C5 --> C6
+
+%% =====================
+%% 执行变量
+%% =====================
+C5 --> D1
+D1 --> D2
+D2 --> D3
+D3 --> D4
+
+%% =====================
+%% 数据更新
+%% =====================
+D4 --> E1
+D4 --> E2
+D4 --> B2
+
+%% =====================
+%% generator 回环
+%% =====================
+D3 -->|yield| B2
+D4 -->|schedule next| C2
+
+%% =====================
+%% 拓扑传播
+%% =====================
+E4 --> C5
