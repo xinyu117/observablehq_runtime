@@ -1,0 +1,116 @@
+## case 1
+	  Promise.resolve()
+	  .then(() => {
+	    console.log("init1");
+	  })
+	  .then(() => {
+	    console.log("define1");
+	  })
+	  .then(() => {
+	    console.log("generate1");
+	  });
+
+	Promise.resolve()
+	  .then(() => {
+	    console.log("init2");
+	  })
+	  .then(() => {
+	    console.log("define2");
+	  })
+	  .then(() => {
+	    console.log("generate2");
+	  });
+
+ ## case 2
+
+      Promise.resolve()
+	  .then(() => {
+	    console.log("init1");
+	  })
+	  .then(() => {
+	    console.log("define1");
+	  })
+	  .then(() => {
+	    console.log("generate1");
+	  });
+
+	Promise.resolve()
+	  .then(() => {
+	    console.log("init2");
+        return Promise.resolve(); // 👈 加这个
+	  })
+	  .then(() => {
+	    console.log("define2");
+	  })
+	  .then(() => {
+	    console.log("generate2");
+	  });
+
+## case 2-1
+
+Promise.resolve()
+  .then(() => {
+    console.log("init1");
+  })
+  .then(() => {
+    console.log("define1");
+  })
+  .then(() => {
+    console.log("generate1");
+  })
+ .then(() => {
+    console.log("update1");
+  })
+ .then(() => {
+    console.log("set1");
+  });
+
+
+Promise.resolve()
+  .then(() => {
+    console.log("init2");
+    return Promise.resolve(); // 👈 加这个
+  })
+  .then(() => {
+    console.log("define2");
+  })
+  .then(() => {
+    console.log("generate2");
+  })
+ .then(() => {
+    console.log("update2");
+  })
+ .then(() => {
+    console.log("set2");
+  });
+
+## case 3
+
+Promise.resolve()
+  .then(() => {
+          console.log("init0");
+	  Promise.resolve()
+	  .then(() => {
+	    console.log("init1");
+	  })
+	  .then(() => {
+	    console.log("define1");
+	  })
+	  .then(() => {
+	    console.log("generate1");
+	  });
+
+	Promise.resolve()
+	  .then(() => {
+	    console.log("init2");
+	  })
+	  .then(() => {
+	    console.log("define2");
+	  })
+	  .then(() => {
+	    console.log("generate2");
+	  });
+  })
+  .then(() => {
+	    console.log("define0");
+});

@@ -106,7 +106,7 @@ function foo() {
 // await x → Promise.resolve(x).then(...)
 // async function → 一定返回 Promise
 // 因此，postcompute(value, promise).then(() => runtime._precompute(recompute));的意思是：runtime._precompute(recompute)的执行是在，
-// runtime_defer(3)之后的变量计算之后
+// runtime_defer(3)之后的变量计算调用栈完了，开始下一轮事件循环之前的微任务阶段执行的。也就是说，recompute()的调用时机是在当前这轮事件循环的末尾，下一轮事件循环开始之前。
 async function runtime_computeNow() {
   let queue = [],
       variables,
@@ -118,7 +118,7 @@ async function runtime_computeNow() {
   // 在同一轮重算时读到的就是新值，而不是上一轮的旧值。
   if (precomputes.length) {
     this._precomputes = [];
-    for (const callback of precomputes) callback();
+    for (const callback of precomputes) callback(); 
 
     // 这里特意再等待几层微任务，而不是开启新的宏任务。
     // 具体顺序可以理解为：
