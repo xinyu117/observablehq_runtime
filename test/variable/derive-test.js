@@ -3,6 +3,56 @@ import assert from "assert";
 import {identity} from "../../src/identity.js";
 import {valueof, promiseInspector, sleep} from "./valueof.js";
 
+/**
+ * 画张图，描述派生的功能和逻辑，详细点。
+ * 
+ * flowchart TB
+    %% Top-level
+    S["源模块 Source\n例如 module0"] --> D{"调用 derive(overrides, injectModule)"}
+    I["注入模块 Inject\n例如 module1"] --> D
+
+    D --> C["创建派生模块 Derived\n例如 module1_0"]
+    C --> SRC["记录来源关系\nDerived._source = Source"]
+
+    %% Overrides mapping
+    D --> O1["解析覆盖规则\n{name:d, alias:b}"]
+    O1 --> O2["语义:\n在派生模块里, b 由 Inject.d 提供"]
+
+    %% Scope copy strategy
+    S --> V0["源模块变量图\na,b,c..."]
+    V0 --> CP["复制变量节点到派生模块\n保持定义结构, 不直接改源模块"]
+    CP --> REW["按覆盖规则重写输入依赖"]
+    REW --> EX1["若变量依赖 b\n改为依赖 Inject.d"]
+
+    %% Runtime behavior
+    REW --> EVAL["运行时求值"]
+    EVAL --> RES1["在派生模块中\nc = a + b 变为 c = a + Inject.d"]
+
+    %% Important invariants
+    S -.不变.-> INV1["源模块保持原语义"]
+    C -.独立.-> INV2["派生模块拥有自己的连接关系"]
+
+    %% Transitive derive
+    C --> T1{"派生链?\nA -> B' -> C' ..."}
+    T1 -->|是| T2["逐层建立 _source 指向\n每层只重写被注入的别名"]
+    T2 --> T3["未被注入的上游模块可复用\n不强制复制"]
+    T1 -->|否| T4["单层派生结束"]
+
+    %% Lazy import-with
+    D --> L1{"被注入模块尚未就绪?"}
+    L1 -->|是| L2["先放占位依赖\n例如依赖 module 2 变量"]
+    L2 --> L3["模块加载后, 重新定义为真正 import"]
+    L3 --> L4["导入输入切换到新的派生副本\n保持最终值一致"]
+    L1 -->|否| L5["直接建立 import 关系"]
+
+    %% Concrete mini example
+    subgraph EX["示例: A.derive([{name:d, alias:b}], B)"]
+      EA["A: a=1,b=2,c=a+b"] --> EDer["派生 A'"]
+      EB["B: d=42"] --> EDer
+      EDer --> ERes["A' 中 c 读取 b 时\n实际读取 B.d\n因此 c=1+42=43"]
+    end
+ */
+
 it("module.derive(overrides, module) injects variables into a copied module", async () => {
   const runtime = new Runtime();
   const module0 = runtime.module();
