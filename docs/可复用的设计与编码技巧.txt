@@ -1,0 +1,230 @@
+
+
+我会先快速扫一遍源码和测试，提炼这个项目里“可复用的设计与编码技巧”（包括你提到的 Promise 钩子思路），然后按“技巧 + 在本项目里的落点”给你一个清单。接下来先做只读检索。
+
+Search complete: scan techniques
+
+Searched for files matching `observablehq_runtime` · `src/**`, 11 matches
+
+Searched for files matching `observablehq_runtime` · `test/**`, 12 matches
+
+Read [](file:///d%3A/github/observablehq_runtime/src/runtime.js#1-1), lines 1 to 260
+
+Read [](file:///d%3A/github/observablehq_runtime/src/module.js)
+
+Read [](file:///d%3A/github/observablehq_runtime/src/variable.js)
+
+Searched for text `function runtime_computeNow` (`observablehq_runtime` · `src/runtime.js`), 1 result
+
+Searched for text `function runtime_defer` (`observablehq_runtime` · `src/runtime.js`), 1 result
+
+Searched for text `function variable_circular` (`observablehq_runtime` · `src/runtime.js`), 1 result
+
+Searched for text `function variable_invalidator` (`observablehq_runtime` · `src/runtime.js`), 1 result
+
+Searched for text `function variable_intersector` (`observablehq_runtime` · `src/runtime.js`), 1 result
+
+Searched for text `function variable_compute` (`observablehq_runtime` · `src/runtime.js`), 1 result
+
+Searched for text `function module_derive` (`observablehq_runtime` · `src/module.js`), 1 result
+
+Searched for text `function module_value` (`observablehq_runtime` · `src/module.js`), 1 result
+
+Searched for text `function module_revalue` (`observablehq_runtime` · `src/module.js`), 1 result
+
+Searched for text `function module_resolve` (`observablehq_runtime` · `src/module.js`), 1 result
+
+Searched for text `function variable_defineImpl` (`observablehq_runtime` · `src/variable.js`), 1 result
+
+Searched for text `function variable_rejector` (`observablehq_runtime` · `src/variable.js`), 1 result
+
+Searched for text `function initShadow` (`observablehq_runtime` · `src/variable.js`), 1 result
+
+Searched for text `function variable_import` (`observablehq_runtime` · `src/variable.js`), 1 result
+
+Searched for text `function variable_delete` (`observablehq_runtime` · `src/variable.js`), 1 result
+
+我已经拿到一轮结构化检索结果，下一步会直接核对关键源码，确保每条技巧都基于真实实现而不是推断。随后给你一份可复用的技巧清单。
+
+Read [](file:///d%3A/github/observablehq_runtime/src/runtime.js#1-1), lines 1 to 320
+
+Read [](file:///d%3A/github/observablehq_runtime/src/variable.js)
+
+Read [](file:///d%3A/github/observablehq_runtime/src/module.js)
+
+我已经确认了核心实现细节，接着补看测试用例来提炼“工程化技巧”（比如如何验证重定义、派生、清理语义），然后整理成一份分组清单。
+
+Read [](file:///d%3A/github/observablehq_runtime/test/variable/define-test.js#1-1), lines 1 to 260
+
+Read [](file:///d%3A/github/observablehq_runtime/test/runtime/dispose-test.js)
+
+Read [](file:///d%3A/github/observablehq_runtime/test/variable/derive-test.js#1-1), lines 1 to 320
+
+Read [](file:///d%3A/github/observablehq_runtime/test/module/redefine-test.js)
+
+我先看一下记忆区是否有已记录的偏好或仓库笔记，再把这次提炼的技巧整理成可复用知识点。
+
+Read memory
+
+这个项目里有不少值得借鉴的设计与编码技巧。我按“可迁移性”给你列一版清单：
+
+1. 计算合并调度（防抖式重算）
+通过复用同一个 computing Promise，把同一轮的多次更新合并，避免重复排队和重入。
+参考：runtime.js
+
+2. 跨环境调度抽象
+把 requestAnimationFrame、setImmediate、setTimeout(0)统一成一个 frame 入口，兼容浏览器和非浏览器环境。
+参考：runtime.js
+
+3. Promise 形式的失效钩子（你提到的这类技巧）
+把 invalidation 设计成 Promise，并把 resolve 保存到变量的 _invalidate 上；重算或销毁时触发 resolve，实现“声明式清理钩子”。
+参考：runtime.js, module.js, dispose-test.js
+
+4. 特殊依赖的延迟注入
+用保留符号（@variable / invalidation / visibility）作为占位输入，在真正执行定义函数前再替换成运行时对象，降低 API 表面复杂度。
+参考：module.js, runtime.js
+
+5. 同步/异步/生成器统一到一条 Promise 执行链
+输入解析、定义执行、generator 首值拉取都挂在 Promise 链上，保证外部观察到一致的异步边界。
+参考：runtime.js, generatorish.js, define-test.js
+
+6. 版本号防陈旧写入
+每轮计算携带 version token，完成时校验版本；过期结果抛 stale 哨兵，避免旧异步结果覆盖新定义。
+参考：variable.js, module.js
+
+7. 依赖图增量维护
+通过 attach/detach 维护 inputs/outputs 有向边，并用 dirty/updates 集合只重算受影响子图。
+参考：variable.js, runtime.js
+
+8. 拓扑排序 + 环检测兜底
+先按入度做拓扑执行，残留节点再做 circular 检测并统一抛循环定义错误，兼顾效率与可诊断性。
+参考：runtime.js, define-test.js
+
+9. 可达性驱动的懒计算
+变量是否可达决定是否参与重算；不可达时触发失效，减少无观察者分支的计算和资源占用。
+参考：runtime.js, define-test.js
+
+10. 生成器生命周期管理
+可达时持续产出，不可达或失效时调用 return 终止生成器，避免悬挂迭代器。
+参考：runtime.js, define-test.js, dispose-test.js
+
+11. 重名冲突的显式建模
+用 TYPE_DUPLICATE 节点承接冲突引用，并在冲突解除后自动恢复真实定义，保证图结构始终一致。
+参考：variable.js, define-test.js, redefine-test.js
+
+12. 名称解析分层策略
+当前作用域、模块内建、runtime 内建、全局对象逐级回退；并支持 shadow 注入覆盖，便于测试和局部替换。
+参考：module.js, variable.js
+
+13. derive 的“两阶段复制”策略
+先建 source->target 映射壳，再复制变量定义；同时处理传递 import-with，避免复制顺序引入解析错误。
+参考：module.js, derive-test.js
+
+14. 用测试当“行为规范文档”
+测试覆盖了重复定义、循环依赖、lazy import-with、dispose 清理等关键语义，能直接指导重构与扩展。
+参考：define-test.js, derive-test.js, dispose-test.js, redefine-test.js
+
+如果你愿意，我可以下一步把这 14 条再压缩成“5 条最值得在你自己项目里立刻复用的模式”，并给每条一个最小实现模板。
+
+下面给你“5 条最值得立刻复用”的模式，每条都带最小模板，能直接搬到业务项目里。
+
+1. Promise 失效钩子（清理副作用首选）
+用途：取消订阅、终止轮询、停止流、释放资源。
+```js
+function createInvalidation() {
+  let invalidate = () => {};
+  const invalidation = new Promise((resolve) => {
+    invalidate = resolve;
+  });
+  return { invalidation, invalidate };
+}
+
+// usage
+const { invalidation, invalidate } = createInvalidation();
+
+async function runTask() {
+  const sub = startSubscription();
+  invalidation.then(() => sub.unsubscribe()); // cleanup hook
+}
+
+// later
+invalidate(); // trigger cleanup
+```
+
+2. 版本号防陈旧写入（解决异步竞态）
+用途：用户快速切换参数、重复请求返回乱序。
+```js
+let version = 0;
+let value;
+
+async function recompute(input) {
+  const myVersion = ++version;
+  const next = await fetchData(input);
+  if (myVersion !== version) return; // stale result, ignore
+  value = next;
+}
+```
+
+3. 合并调度（批处理多次更新）
+用途：高频状态变更时避免重复计算。
+```js
+let computing = null;
+
+function scheduleCompute() {
+  if (!computing) {
+    computing = Promise.resolve().then(() => {
+      computing = null;
+      return computeNow(); // do batched work once
+    });
+  }
+  return computing;
+}
+```
+
+4. 拓扑执行 + 环检测（依赖图稳定方案）
+用途：公式引擎、任务依赖、数据流节点。
+```js
+function runDag(nodes) {
+  const queue = [];
+  for (const n of nodes) if (n.indegree === 0) queue.push(n);
+
+  let count = 0;
+  while (queue.length) {
+    const n = queue.pop();
+    count++;
+    n.run();
+    for (const out of n.outputs) {
+      out.indegree--;
+      if (out.indegree === 0) queue.push(out);
+    }
+  }
+
+  if (count !== nodes.length) {
+    throw new Error("circular dependency");
+  }
+}
+```
+
+5. 两阶段构建（先建映射壳，再填充定义）
+用途：模块派生、配置注入、跨环境重写依赖。
+```js
+function buildDerived(sourceGraph, overrides) {
+  const map = new Map();
+
+  // pass 1: create shells
+  for (const src of sourceGraph.nodes) {
+    map.set(src, { id: src.id, inputs: [], fn: null });
+  }
+
+  // pass 2: wire and copy definitions
+  for (const src of sourceGraph.nodes) {
+    const dst = map.get(src);
+    dst.fn = overrides[src.id]?.fn ?? src.fn;
+    dst.inputs = src.inputs.map((inp) => map.get(inp));
+  }
+
+  return [...map.values()];
+}
+```
+
+如果你要，我下一步可以给你做一版“observablehq_runtime 风格”的 TypeScript 实战骨架（含类型、错误哨兵、测试样例）。
