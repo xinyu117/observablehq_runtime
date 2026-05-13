@@ -28,6 +28,7 @@ export function Variable(type, module, observer, options) {
     _indegree: {value: NaN, writable: true}, // The number of computing inputs.
     // 上游依赖列表（有序数组，位置对应 define 的输入参数顺序）。
     _inputs: {value: [], writable: true},
+    _level: {value: 0, writable: true},
     // 失效钩子：每轮重算前会触发旧值失效（例如停止 generator、取消订阅等）。
     _invalidate: {value: noop, writable: true},
     _module: {value: module},

@@ -1,5 +1,6 @@
 import {RuntimeError} from "./errors.js";
 import {generatorish} from "./generatorish.js";
+import {computeLevels} from "./level.js";
 import {Module, variable_variable, variable_invalidation, variable_visibility} from "./module.js";
 import {noop} from "./noop.js";
 import {Variable, TYPE_IMPLICIT, no_observer, variable_stale} from "./variable.js";
@@ -37,6 +38,7 @@ Object.defineProperties(Runtime.prototype, {
   _compute: {value: runtime_compute, writable: true, configurable: true},
   _computeSoon: {value: runtime_computeSoon, writable: true, configurable: true},
   _computeNow: {value: runtime_computeNow, writable: true, configurable: true},
+  _computeLevels: {value: runtime_computeLevels, writable: true, configurable: true},
   dispose: {value: runtime_dispose, writable: true, configurable: true},
   module: {value: runtime_module, writable: true, configurable: true}
 });
@@ -112,6 +114,8 @@ async function runtime_computeNow() {
       variables,
       variable,
       precomputes = this._precomputes;
+
+  this._computeLevels();
 
   // 如果有暂停中的 generator，先恢复它们，再继续做依赖图计算。
   // 这样做的目的，是让“同步 yield 的 generator”先把最新值写回当前变量，随后下游变量
@@ -194,6 +198,31 @@ async function runtime_computeNow() {
   function postqueue(variable) {
     if (--variable._indegree === 0) {
       queue.push(variable);
+    }
+  }
+}
+
+function runtime_computeLevels() {
+  const graph = new Map();
+
+  for (const variable of this._variables) {
+    graph.set(variable, variable._inputs);
+  }
+
+  for (const [variable, inputs] of graph) {
+    for (const input of inputs) {
+      if (!graph.has(input)) graph.set(input, input._inputs);
+    }
+  }
+
+  try {
+    const levels = computeLevels(graph);
+    for (const [variable, level] of levels) {
+      variable._level = level;
+    }
+  } catch {
+    for (const variable of graph.keys()) {
+      variable._level = NaN;
     }
   }
 }
