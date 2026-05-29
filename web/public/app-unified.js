@@ -108,6 +108,7 @@ function resetForm() {
 }
 
 function setMode(nextMode) {
+  // 切换模式前先中止正在进行的异步展示，避免旧任务继续写 UI。
   cancelValuesAsync({silent: true});
   mode = nextMode;
   resetForm();
@@ -157,6 +158,7 @@ function prevNonSpace(input, index) {
 }
 
 function extractDependencies(expression) {
+  // 轻量依赖提取：忽略字符串字面量、对象键名与属性访问，仅提取自由标识符。
   const deps = [];
   const seen = new Set();
   let quote = null;
@@ -249,6 +251,7 @@ function createDefinition(variable) {
   const functionExpression = isFunctionExpression(expression);
 
   if (params.length > 0) {
+    // 显式 params 视为该变量的依赖，表达式作为定义函数体执行。
     return {
       dependencies: params.filter((d) => d !== variable.name),
       definition: new Function(...params, `return (${expression});`)
@@ -256,9 +259,9 @@ function createDefinition(variable) {
   }
 
   if (functionExpression) {
+    // 当表达式本身是函数时，变量值应为“函数对象”本身，而不是立即调用结果。
     return {
-      // Function expressions are treated as function values; dependencies should
-      // come from explicit params, not from function argument names.
+      // 依赖只来自显式 params，不从函数形参名推导，避免把 ms 误判成外部变量。
       dependencies: [],
       definition: new Function(`return (${expression});`)
     };
@@ -429,6 +432,7 @@ function normalizeImportedVariable(raw) {
 }
 
 function validateImportedVariables(variables) {
+  // 导入校验只检查“数据自身合法性”，不限制与当前已有变量同名。
   const names = new Set();
 
   for (const item of variables) {
@@ -649,6 +653,7 @@ async function evaluateVariablesLocal(items) {
 }
 
 function createValuesBoard(names) {
+  // 展示层维护一个“变量名 -> 文本状态”映射，支持先渲染名称再逐项填充值。
   const orderedNames = [...names].sort((a, b) => a.localeCompare(b));
   const statusByName = new Map(orderedNames.map((name) => [name, {kind: "pending", text: "<pending>"}]));
   let displayVersion = -1;
@@ -670,8 +675,7 @@ function createValuesBoard(names) {
       .join("\n");
   }
 
-  // Mirror the notebook client display pipeline: reject stale writes and
-  // pre-clear output once when a newer display version arrives.
+  // 对齐 client.js 的 display 思路：拒绝旧版本写入，并在新版本开始时统一重置。
   function display(version, item) {
     if (version < displayVersion) throw new Error("stale display");
     if (version > displayVersion) {
@@ -693,6 +697,7 @@ function createValuesBoard(names) {
 }
 
 async function evaluateVariablesLocalWithObserver(items, {signal, onUpdate}) {
+  // 本地模式下为每个变量挂观察者：fulfilled/rejected 时立即推送到 UI。
   const runtime = new Runtime(builtinValues);
   const module = runtime.module();
   const ordered = [...items].sort((a, b) => a.name.localeCompare(b.name));
@@ -777,6 +782,7 @@ function throwIfAborted(signal) {
 }
 
 function cancelValuesAsync({silent = false} = {}) {
+  // 仅终止当前轮异步任务，不触发额外业务逻辑。
   if (!asyncValuesTask) return false;
   asyncValuesTask.abortController.abort();
   asyncValuesTask = null;
@@ -787,6 +793,7 @@ function cancelValuesAsync({silent = false} = {}) {
 
 async function loadValuesAsync() {
   if (asyncValuesTask) {
+    // 再次点击按钮即视为“停止当前异步展示”。
     cancelValuesAsync();
     return;
   }
@@ -803,6 +810,7 @@ async function loadValuesAsync() {
 
     const board = createValuesBoard(activeVariables().map((item) => item.name));
     const display = (() => {
+      // 每轮展示绑定唯一版本号，防止旧任务回写覆盖新任务结果。
       const version = Date.now();
       return (item) => board.display(version, item);
     })();
