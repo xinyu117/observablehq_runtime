@@ -1,0 +1,74 @@
+[
+  {
+    "name": "base",
+    "params": [],
+    "expression": "7"
+  },
+  {
+    "name": "boom",
+    "params": [
+      "sleep"
+    ],
+    "expression": "(async () => { await sleep(900); throw new Error('demo error from boom'); })()"
+  },
+  {
+    "name": "derivedFromA",
+    "params": [
+      "slowA"
+    ],
+    "expression": "slowA + 1"
+  },
+  {
+    "name": "fastValue",
+    "params": [
+      "base"
+    ],
+    "expression": "base * 10"
+  },
+  {
+    "name": "finalReport",
+    "params": [
+      "derivedFromA",
+      "mixed",
+      "randomWait"
+    ],
+    "expression": "`${derivedFromA} | ${mixed} | ${randomWait}`"
+  },
+  {
+    "name": "mixed",
+    "params": [
+      "fastValue",
+      "slowB"
+    ],
+    "expression": "`mix:${fastValue}-${slowB}`"
+  },
+  {
+    "name": "randomWait",
+    "params": [
+      "sleep",
+      "base"
+    ],
+    "expression": "(async () => { const ms = 200 + base * 50; await sleep(ms); return `waited:${ms}`; })()"
+  },
+  {
+    "name": "sleep",
+    "params": [],
+    "expression": "(ms) => new Promise((resolve) => setTimeout(resolve, ms))"
+  },
+  {
+    "name": "slowA",
+    "params": [
+      "sleep",
+      "base"
+    ],
+    "expression": "(async () => { await sleep(1200); return base + 100; })()"
+  },
+  {
+    "name": "slowB",
+    "params": [
+      "sleep",
+      "base"
+    ],
+    "expression": "(async () => { await sleep(400); return base * 3; })()"
+  }
+]

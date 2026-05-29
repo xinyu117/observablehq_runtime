@@ -39,9 +39,22 @@ Object.defineProperties(Runtime.prototype, {
   _computeSoon: {value: runtime_computeSoon, writable: true, configurable: true},
   _computeNow: {value: runtime_computeNow, writable: true, configurable: true},
   _computeLevels: {value: runtime_computeLevels, writable: true, configurable: true},
+  variablesByLevel: {value: runtime_variablesByLevel, writable: true, configurable: true},
   dispose: {value: runtime_dispose, writable: true, configurable: true},
   module: {value: runtime_module, writable: true, configurable: true}
 });
+
+function runtime_variablesByLevel() {
+  this._computeLevels();
+  const levels = [];
+  for (const variable of this._variables) {
+    const level = variable._level;
+    if (!Number.isFinite(level)) continue;
+    if (!levels[level]) levels[level] = [];
+    levels[level].push(variable);
+  }
+  return levels;
+}
 
 function runtime_dispose() {
   this._computing = Promise.resolve();

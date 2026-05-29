@@ -30,7 +30,25 @@
                 "10000",
                 "test/variable/define-test.js",
                 "--grep",
-                "can define a named variable"
+                "supports a promise that resolves to a generator object"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "dispose Program",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+            "args": [
+                "--timeout",
+                "10000",
+                "test/runtime/dispose-test.js",
+                "--grep",
+                "runtime.dispose"
             ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"

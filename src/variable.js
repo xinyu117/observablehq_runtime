@@ -56,6 +56,7 @@ Object.defineProperties(Variable.prototype, {
   _fulfilled: {value: variable_fulfilled, writable: true, configurable: true},
   _rejected: {value: variable_rejected, writable: true, configurable: true},
   _resolve: {value: variable_resolve, writable: true, configurable: true},
+  parents: {get: variable_parents, configurable: true},
   define: {value: variable_define, writable: true, configurable: true},
   delete: {value: variable_delete, writable: true, configurable: true},
   import: {value: variable_import, writable: true, configurable: true}
@@ -137,6 +138,10 @@ function variable_define(name, inputs, definition) {
 function variable_resolve(name) {
   // 名称解析优先 shadow，其次模块作用域。
   return this._shadow?.get(name) ?? this._module._resolve(name);
+}
+
+function variable_parents() {
+  return this._inputs;
 }
 
 function variable_defineImpl(name, inputs, definition) {

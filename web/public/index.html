@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Runtime 变量管理</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card form-card">
+        <h1>Runtime 变量管理</h1>
+        <p class="subtitle">输入变量名、输入参数和变量值/计算式，支持后台结算与前端 Runtime 结算双模式。</p>
+
+        <div class="mode-switch" role="group" aria-label="结算模式">
+          <button id="mode-backend-btn" type="button" class="secondary">后台结算模式</button>
+          <button id="mode-local-btn" type="button" class="ghost">前端 Runtime 模式</button>
+          <span id="mode-badge" class="mode-badge">当前: 后台结算</span>
+        </div>
+
+        <form id="variable-form" class="variable-form">
+          <label>
+            变量名
+            <input id="name" name="name" placeholder="例如：sum" required />
+          </label>
+
+          <label>
+            输入参数（逗号分隔，可选）
+            <input id="params" name="params" placeholder="例如：a, b" />
+          </label>
+
+          <label>
+            值 / 函数 / 计算式
+            <textarea id="expression" name="expression" rows="4" placeholder="例如：a + b" required></textarea>
+          </label>
+
+          <div class="form-actions">
+            <button id="submit-btn" type="submit">+</button>
+            <button id="cancel-btn" type="button" class="ghost" hidden>取消编辑</button>
+            <button id="show-values-btn" type="button" class="secondary">查看当前所有变量和值</button>
+            <button id="show-values-async-btn" type="button" class="secondary">异步显示当前所有变量和值</button>
+            <button id="save-btn" type="button" class="secondary" hidden>保存到后台</button>
+            <button id="export-btn" type="button" class="ghost">导出 JSON</button>
+            <button id="import-btn" type="button" class="ghost">导入 JSON</button>
+            <input id="import-file" type="file" accept="application/json,.json" hidden />
+          </div>
+        </form>
+      </section>
+
+      <section class="card table-card">
+        <h2>变量列表</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>变量名</th>
+              <th>输入参数</th>
+              <th>值 / 计算式</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="variables-body"></tbody>
+        </table>
+      </section>
+
+      <section class="card values-card">
+        <h2>当前所有变量和值</h2>
+        <pre id="values-output">点击“查看当前所有变量和值”加载</pre>
+      </section>
+    </main>
+
+    <template id="empty-row-template">
+      <tr>
+        <td colspan="4" class="empty-row">暂无变量</td>
+      </tr>
+    </template>
+
+    <dialog id="import-preview-dialog" class="preview-dialog">
+      <form method="dialog" class="preview-panel">
+        <header class="preview-header">
+          <h3>导入预览</h3>
+          <button id="preview-close-btn" type="button" class="ghost">关闭</button>
+        </header>
+
+        <div id="preview-summary" class="preview-summary"></div>
+
+        <div class="preview-grid">
+          <section>
+            <h4>将新增</h4>
+            <div id="preview-created" class="preview-list"></div>
+          </section>
+          <section>
+            <h4>将覆盖</h4>
+            <div id="preview-updated" class="preview-list"></div>
+          </section>
+          <section>
+            <h4>将删除</h4>
+            <div id="preview-removed" class="preview-list"></div>
+          </section>
+          <section>
+            <h4>不变</h4>
+            <div id="preview-unchanged" class="preview-list"></div>
+          </section>
+        </div>
+
+        <footer class="preview-actions">
+          <button id="preview-copy-btn" type="button" class="ghost">复制预览</button>
+          <button id="preview-cancel-btn" type="button" class="ghost">取消</button>
+          <button id="preview-confirm-btn" type="button" class="secondary">确认导入</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script type="module" src="/app-unified.js"></script>
+  </body>
+</html>

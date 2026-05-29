@@ -16,6 +16,20 @@ it("variable.define(inputs, function) can define an anonymous variable", async (
   assert.deepStrictEqual(await valueof(foo), {value: 42});
 });
 
+it("variable.parents aliases _inputs", () => {
+  const runtime = new Runtime();
+  const module = runtime.module();
+  module.variable(true).define("a", [], () => 1);
+  const b = module.variable(true).define("b", ["a"], a => a);
+  assert.strictEqual(b.parents, b._inputs);
+  assert.deepStrictEqual(b.parents.map(i => i._name), ["a"]);
+
+  module.variable(true).define("c", [], () => 2);
+  b.define("b", ["c"], c => c);
+  assert.strictEqual(b.parents, b._inputs);
+  assert.deepStrictEqual(b.parents.map(i => i._name), ["c"]);
+});
+
 it("variable.define(name, function) can define a named variable", async () => {
   const runtime = new Runtime();
   const module = runtime.module();
