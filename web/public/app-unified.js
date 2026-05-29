@@ -651,6 +651,13 @@ async function evaluateVariablesLocal(items) {
 function createValuesBoard(names) {
   const orderedNames = [...names].sort((a, b) => a.localeCompare(b));
   const statusByName = new Map(orderedNames.map((name) => [name, {kind: "pending", text: "<pending>"}]));
+  let displayVersion = -1;
+
+  function resetPending() {
+    for (const name of orderedNames) {
+      statusByName.set(name, {kind: "pending", text: "<pending>"});
+    }
+  }
 
   function render() {
     if (orderedNames.length === 0) {
@@ -663,17 +670,26 @@ function createValuesBoard(names) {
       .join("\n");
   }
 
-  function updateValue(item) {
+  // Mirror the notebook client display pipeline: reject stale writes and
+  // pre-clear output once when a newer display version arrives.
+  function display(version, item) {
+    if (version < displayVersion) throw new Error("stale display");
+    if (version > displayVersion) {
+      resetPending();
+      displayVersion = version;
+    }
+
     if (!item?.name || !statusByName.has(item.name)) return;
-    statusByName.set(item.name, item.error
-      ? {kind: "error", text: `<Error: ${item.error}>`}
-      : {kind: "value", text: item.value}
-    );
+    const text = item.error
+      ? `<Error: ${item.error}>`
+      : item.value == null ? String(item.value) : String(item.value);
+    statusByName.set(item.name, item.error ? {kind: "error", text} : {kind: "value", text});
     render();
   }
 
+  resetPending();
   render();
-  return {render, updateValue};
+  return {render, display};
 }
 
 async function evaluateVariablesLocalWithObserver(items, {signal, onUpdate}) {
@@ -690,23 +706,39 @@ async function evaluateVariablesLocalWithObserver(items, {signal, onUpdate}) {
     await new Promise((resolve, reject) => {
       let remaining = ordered.length;
       const settled = new Set();
+      let detached = false;
+      let onAbort;
+
+      const cleanup = () => {
+        if (detached) return;
+        detached = true;
+        if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+      };
 
       const settle = (name, payload) => {
         if (settled.has(name)) return;
         settled.add(name);
         onUpdate(payload);
         remaining -= 1;
-        if (remaining === 0) resolve();
+        if (remaining === 0) {
+          cleanup();
+          resolve();
+        }
       };
 
       if (remaining === 0) {
+        cleanup();
         resolve();
         return;
       }
 
-      const onAbort = () => reject(createAbortError());
+      onAbort = () => {
+        cleanup();
+        reject(createAbortError());
+      };
       if (signal) {
         if (signal.aborted) {
+          cleanup();
           reject(createAbortError());
           return;
         }
@@ -770,6 +802,10 @@ async function loadValuesAsync() {
     valuesOutput.textContent = "";
 
     const board = createValuesBoard(activeVariables().map((item) => item.name));
+    const display = (() => {
+      const version = Date.now();
+      return (item) => board.display(version, item);
+    })();
 
     if (mode === "backend") {
       const response = await fetch("/api/values/stream", {signal});
@@ -799,7 +835,7 @@ async function loadValuesAsync() {
           throwIfAborted(signal);
           if (!line.trim()) continue;
           const item = JSON.parse(line);
-          board.updateValue(item.error ? {name: item.name, error: item.error} : {name: item.name, value: item.value});
+          display(item.error ? {name: item.name, error: item.error} : {name: item.name, value: item.value});
           count += 1;
         }
       }
@@ -808,7 +844,7 @@ async function loadValuesAsync() {
       if (chunkBuffer.trim()) {
         throwIfAborted(signal);
         const item = JSON.parse(chunkBuffer);
-        board.updateValue(item.error ? {name: item.name, error: item.error} : {name: item.name, value: item.value});
+        display(item.error ? {name: item.name, error: item.error} : {name: item.name, value: item.value});
         count += 1;
       }
 
@@ -820,7 +856,7 @@ async function loadValuesAsync() {
       signal,
       onUpdate: (item) => {
         throwIfAborted(signal);
-        board.updateValue(item);
+        display(item);
       }
     });
   } catch (error) {
