@@ -155,25 +155,8 @@ function renderTable() {
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.textContent = "删除";
-    deleteBtn.addEventListener("click", async () => {
-      const previousGraph = buildDependentsGraph(variables);
-      const dependents = listDependents(variable.name);
-      if (dependents.length > 0) {
-        const ok = window.confirm(`变量 ${variable.name} 被以下变量依赖: ${dependents.join(", ")}\n确认继续删除吗？`);
-        if (!ok) return;
-      }
-
-      removeVariableFromRuntime(variable.name);
-      variables = variables.filter((item) => item.name !== variable.name);
-      valueByName.delete(variable.name);
-      if (editingName === variable.name) resetForm();
-
-      const nextGraph = buildDependentsGraph(variables);
-      const affected = collectAffectedNames([variable.name], previousGraph, nextGraph);
-
-      setDirty(true);
-      renderTable();
-      await recomputeAffectedValues([...affected]);
+    deleteBtn.addEventListener("click", () => {
+      deleteVariable(variable.name);
     });
 
     actions.append(editBtn, deleteBtn);
@@ -181,6 +164,24 @@ function renderTable() {
 
     tr.append(nameTd, paramsTd, expressionTd, actionTd);
     tableBody.appendChild(tr);
+  }
+}
+
+function renderValuesBoard() {
+  if (variables.length === 0) {
+    valuesOutput.textContent = "当前没有已定义变量。";
+    return;
+  }
+
+  const ordered = [...variables].map((item) => item.name).sort((a, b) => a.localeCompare(b));
+  const lines = ordered.map((name) => `${name} = ${valueByName.get(name) ?? "<pending>"}`);
+  valuesOutput.textContent = lines.join("\n");
+}
+
+function clearDetachedValues() {
+  const nameSet = new Set(variables.map((item) => item.name));
+  for (const name of [...valueByName.keys()]) {
+    if (!nameSet.has(name)) valueByName.delete(name);
   }
 }
 
@@ -318,70 +319,36 @@ function safeCreateDefinition(variable) {
   }
 }
 
-function getDeclaredDependencies(variable) {
-  const params = Array.isArray(variable.params) ? variable.params : [];
-  if (params.length > 0) {
-    return params.filter((name) => name !== variable.name);
-  }
+function formatInspectable(value) {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "function") return "[Function]";
+  if (value instanceof Error) return `<Error: ${value.message}>`;
+  if (typeof value === "symbol") return value.toString();
+  if (typeof value === "bigint") return `${value.toString()}n`;
+  if (value === undefined) return "undefined";
 
-  if (isFunctionExpression(variable.expression)) {
-    return [];
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return Object.prototype.toString.call(value);
   }
-
-  return extractDependencies(variable.expression).filter((name) => name !== variable.name);
 }
 
-function buildDependentsGraph(list) {
-  const names = new Set(list.map((item) => item.name));
-  const graph = new Map();
-
-  for (const item of list) {
-    if (!graph.has(item.name)) graph.set(item.name, new Set());
-  }
-
-  for (const item of list) {
-    const deps = getDeclaredDependencies(item);
-    for (const dep of deps) {
-      if (!names.has(dep)) continue;
-      if (!graph.has(dep)) graph.set(dep, new Set());
-      graph.get(dep).add(item.name);
+function createObserver(name) {
+  return {
+    pending() {
+      valueByName.set(name, "<pending>");
+      renderValuesBoard();
+    },
+    fulfilled(value) {
+      valueByName.set(name, formatInspectable(value));
+      renderValuesBoard();
+    },
+    rejected(error) {
+      valueByName.set(name, `<Error: ${error?.message || String(error)}>`);
+      renderValuesBoard();
     }
-  }
-
-  return graph;
-}
-
-function collectAffectedFromGraph(graph, startNames) {
-  const affected = new Set();
-  const queue = [];
-
-  for (const name of startNames) {
-    if (!name) continue;
-    if (!affected.has(name)) {
-      affected.add(name);
-      queue.push(name);
-    }
-  }
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    const dependents = graph.get(current);
-    if (!dependents) continue;
-    for (const dependent of dependents) {
-      if (affected.has(dependent)) continue;
-      affected.add(dependent);
-      queue.push(dependent);
-    }
-  }
-
-  return affected;
-}
-
-function collectAffectedNames(startNames, prevGraph, nextGraph) {
-  const result = new Set();
-  for (const name of collectAffectedFromGraph(prevGraph, startNames)) result.add(name);
-  for (const name of collectAffectedFromGraph(nextGraph, startNames)) result.add(name);
-  return result;
+  };
 }
 
 function applyVariableToRuntime(variable) {
@@ -389,7 +356,7 @@ function applyVariableToRuntime(variable) {
 
   let handle = variableHandles.get(variable.name);
   if (!handle) {
-    handle = runtimeModule.variable(true);
+    handle = runtimeModule.variable(createObserver(variable.name));
     variableHandles.set(variable.name, handle);
   }
 
@@ -412,68 +379,7 @@ function initializeRuntimeFromVariables() {
   }
 }
 
-function formatInspectable(value) {
-  if (typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "function") return "[Function]";
-  if (value instanceof Error) return `<Error: ${value.message}>`;
-  if (typeof value === "symbol") return value.toString();
-  if (typeof value === "bigint") return `${value.toString()}n`;
-  if (value === undefined) return "undefined";
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return Object.prototype.toString.call(value);
-  }
-}
-
-function renderValuesBoard() {
-  if (variables.length === 0) {
-    valuesOutput.textContent = "当前没有已定义变量。";
-    return;
-  }
-
-  const ordered = [...variables].map((item) => item.name).sort((a, b) => a.localeCompare(b));
-  const lines = ordered.map((name) => `${name} = ${valueByName.get(name) ?? "<pending>"}`);
-  valuesOutput.textContent = lines.join("\n");
-}
-
-async function recomputeAffectedValues(targetNames) {
-  if (!runtimeModule) {
-    valuesOutput.textContent = "当前没有已定义变量。";
-    return;
-  }
-
-  const nameSet = new Set(variables.map((item) => item.name));
-  const names = [...new Set(targetNames)]
-    .filter((name) => nameSet.has(name))
-    .sort((a, b) => a.localeCompare(b));
-
-  if (names.length === 0) {
-    renderValuesBoard();
-    return;
-  }
-
-  for (const name of names) {
-    try {
-      const value = await runtimeModule.value(name);
-      valueByName.set(name, formatInspectable(value));
-    } catch (error) {
-      valueByName.set(name, `<Error: ${error.message}>`);
-    }
-  }
-
-  renderValuesBoard();
-}
-
-async function loadValues() {
-  await recomputeAffectedValues(variables.map((item) => item.name));
-}
-
 async function mergeImportedVariables(imported) {
-  const previousGraph = buildDependentsGraph(variables);
-  const changedNames = imported.map((item) => item.name);
-
   const map = new Map(variables.map((item) => [item.name, item]));
   for (const item of imported) {
     map.set(item.name, {
@@ -482,16 +388,15 @@ async function mergeImportedVariables(imported) {
       expression: item.expression
     });
   }
-  variables = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
 
+  variables = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   for (const item of imported) {
     applyVariableToRuntime(item);
-    if (!valueByName.has(item.name)) valueByName.set(item.name, "<pending>");
   }
 
-  const nextGraph = buildDependentsGraph(variables);
-  const affected = collectAffectedNames(changedNames, previousGraph, nextGraph);
-  await recomputeAffectedValues([...affected]);
+  clearDetachedValues();
+  renderTable();
+  renderValuesBoard();
 }
 
 function parseCsvToVariables(text) {
@@ -577,6 +482,24 @@ async function saveAllVariables() {
   }
 }
 
+function deleteVariable(name) {
+  const dependents = listDependents(name);
+  if (dependents.length > 0) {
+    const ok = window.confirm(`变量 ${name} 被以下变量依赖: ${dependents.join(", ")}\n确认继续删除吗？`);
+    if (!ok) return;
+  }
+
+  removeVariableFromRuntime(name);
+  variables = variables.filter((item) => item.name !== name);
+  valueByName.delete(name);
+
+  if (editingName === name) resetForm();
+
+  setDirty(true);
+  renderTable();
+  renderValuesBoard();
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -593,8 +516,6 @@ form.addEventListener("submit", async (event) => {
 
   try {
     validateVariable(variable, editingName || "");
-
-    const previousGraph = buildDependentsGraph(variables);
     const previousName = editingName;
 
     if (previousName) {
@@ -611,13 +532,10 @@ form.addEventListener("submit", async (event) => {
     if (!valueByName.has(variable.name)) valueByName.set(variable.name, "<pending>");
 
     variables.sort((a, b) => a.name.localeCompare(b.name));
-    const nextGraph = buildDependentsGraph(variables);
-    const affected = collectAffectedNames([previousName, variable.name], previousGraph, nextGraph);
-
     resetForm();
     setDirty(true);
     renderTable();
-    await recomputeAffectedValues([...affected]);
+    renderValuesBoard();
   } catch (error) {
     window.alert(error.message);
   }
@@ -645,15 +563,14 @@ csvFile.addEventListener("change", async () => {
     const imported = parseCsvToVariables(text);
     await mergeImportedVariables(imported);
     setDirty(true);
-    renderTable();
     window.alert(`CSV 导入完成，共生成/更新 ${imported.length} 个变量`);
   } catch (error) {
     window.alert(`CSV 导入失败: ${error.message}`);
   }
 });
 
-showValuesBtn.addEventListener("click", async () => {
-  await loadValues();
+showValuesBtn.addEventListener("click", () => {
+  renderValuesBoard();
 });
 
 window.addEventListener("beforeunload", (event) => {
