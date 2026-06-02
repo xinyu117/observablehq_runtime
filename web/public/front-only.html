@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>前端模式变量管理</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card form-card">
+        <div class="page-head">
+          <a class="button-link" href="/">返回首页</a>
+          <span id="front-only-status" class="mode-badge">状态: 已同步</span>
+        </div>
+
+        <h1>前端模式变量管理</h1>
+        <p class="subtitle">本页只在前端模式编辑变量，点击“+”仅追加定义；点击“保存”才会写入独立数据库与独立 JSON 文件。</p>
+
+        <form id="variable-form" class="variable-form">
+          <label>
+            变量名
+            <input id="name" name="name" placeholder="例如：c" required />
+          </label>
+
+          <label>
+            输入参数（逗号分隔，可选）
+            <input id="params" name="params" placeholder="例如：a, b, d" />
+          </label>
+
+          <label>
+            值 / 函数 / 计算式
+            <textarea id="expression" name="expression" rows="4" placeholder="例如：a+b*2" required></textarea>
+          </label>
+
+          <div class="form-actions">
+            <button id="submit-btn" type="submit">+</button>
+            <button id="cancel-btn" type="button" class="ghost" hidden>取消编辑</button>
+            <button id="save-btn" type="button" class="secondary">保存</button>
+            <button id="csv-import-btn" type="button" class="ghost">CSV导入</button>
+            <input id="csv-file" type="file" accept=".csv,text/csv" hidden />
+            <button id="show-values-btn" type="button" class="secondary">查看当前所有变量和值</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card table-card">
+        <h2>变量列表</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>变量名</th>
+              <th>输入参数</th>
+              <th>值 / 计算式</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="variables-body"></tbody>
+        </table>
+      </section>
+
+      <section class="card values-card">
+        <h2>当前所有变量和值</h2>
+        <pre id="values-output">点击“查看当前所有变量和值”加载</pre>
+      </section>
+    </main>
+
+    <template id="empty-row-template">
+      <tr>
+        <td colspan="4" class="empty-row">暂无变量</td>
+      </tr>
+    </template>
+
+    <script type="module" src="/app-front-only.js"></script>
+  </body>
+</html>

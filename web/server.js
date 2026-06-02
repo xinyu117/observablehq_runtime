@@ -9,9 +9,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.join(__dirname, "public");
 const dataDir = path.join(__dirname, "data");
+const frontOnlyDataDir = path.join(dataDir, "front-only");
 const runtimeSrcDir = path.join(__dirname, "..", "src");
 
 const storage = new VariableStorage({dataDir});
+const frontOnlyStorage = new VariableStorage({dataDir: frontOnlyDataDir});
 
 const MIME_BY_EXT = {
   ".html": "text/html; charset=utf-8",
@@ -19,6 +21,9 @@ const MIME_BY_EXT = {
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8"
 };
+
+const DEFAULT_COLLECTION = "默认集合";
+const FRONT_ONLY_COLLECTION = "front_only";
 
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {"Content-Type": "application/json; charset=utf-8"});
@@ -31,6 +36,12 @@ function sendDownloadJson(res, fileName, payload) {
     "Content-Disposition": `attachment; filename="${fileName}"`
   });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+function getCollectionName(url) {
+  const value = url.searchParams.get("collection");
+  const collection = typeof value === "string" ? value.trim() : "";
+  return collection || DEFAULT_COLLECTION;
 }
 
 function normalizeParams(value) {
@@ -205,29 +216,86 @@ async function serveRuntimeSource(req, res, pathname) {
 }
 
 async function handleApi(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/api/front-only/variables") {
+    const variables = frontOnlyStorage.list(FRONT_ONLY_COLLECTION);
+    sendJson(res, 200, {variables});
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/front-only/save") {
+    const body = await parseJsonBody(req);
+    const variables = normalizeVariableList(body?.variables);
+    await frontOnlyStorage.importVariables(variables, "replace", FRONT_ONLY_COLLECTION);
+    sendJson(res, 200, {ok: true, count: variables.length});
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/collections") {
+    sendJson(res, 200, {collections: storage.listCollections()});
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/collections") {
+    const body = await parseJsonBody(req);
+    const name = typeof body?.name === "string" ? body.name : "";
+    try {
+      const created = await storage.createCollection(name);
+      sendJson(res, 200, {ok: true, name: created});
+    } catch (error) {
+      if (error.message === "变量集合已存在") {
+        sendJson(res, 409, {error: error.message});
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
+  if (req.method === "DELETE" && url.pathname.startsWith("/api/collections/")) {
+    const name = decodeURIComponent(url.pathname.slice("/api/collections/".length));
+    try {
+      await storage.removeCollection(name);
+      sendJson(res, 200, {ok: true});
+    } catch (error) {
+      if (["变量集合不存在", "至少保留一个变量集合"].includes(error.message)) {
+        sendJson(res, 409, {error: error.message});
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/variables") {
-    sendJson(res, 200, {variables: storage.list()});
+    const collection = getCollectionName(url);
+    sendJson(res, 200, {collection, variables: storage.list(collection)});
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/export") {
-    sendDownloadJson(res, "variables-export.json", storage.list());
+    const collection = getCollectionName(url);
+    sendDownloadJson(res, "variables-export.json", {
+      collection,
+      variables: storage.list(collection)
+    });
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/values") {
-    const values = await evaluateVariables(storage.list());
+    const collection = getCollectionName(url);
+    const values = await evaluateVariables(storage.list(collection));
     sendJson(res, 200, {values});
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/values/stream") {
+    const collection = getCollectionName(url);
     res.writeHead(200, {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-cache"
     });
 
-    for await (const item of evaluateVariablesStream(storage.list())) {
+    for await (const item of evaluateVariablesStream(storage.list(collection))) {
       res.write(`${JSON.stringify(item)}\n`);
     }
 
@@ -236,47 +304,51 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/variables") {
+    const collection = getCollectionName(url);
     const body = await parseJsonBody(req);
     const variable = normalizeVariable(body);
 
-    await storage.upsert(variable);
+    await storage.upsert(variable, collection);
     sendJson(res, 200, {ok: true, variable});
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/import") {
+    const collection = getCollectionName(url);
     const body = await parseJsonBody(req);
     const mode = body?.mode === "merge" ? "merge" : "replace";
     const variables = normalizeVariableList(body?.variables);
-    await storage.importVariables(variables, mode);
+    await storage.importVariables(variables, mode, collection);
     sendJson(res, 200, {ok: true, mode, count: variables.length});
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/import/preview") {
+    const collection = getCollectionName(url);
     const body = await parseJsonBody(req);
     const mode = body?.mode === "merge" ? "merge" : "replace";
     const variables = normalizeVariableList(body?.variables);
-    const preview = buildImportPreview(storage.list(), variables, mode);
+    const preview = buildImportPreview(storage.list(collection), variables, mode);
     sendJson(res, 200, {ok: true, preview});
     return;
   }
 
   if (req.method === "PUT" && url.pathname.startsWith("/api/variables/")) {
+    const collection = getCollectionName(url);
     const oldName = decodeURIComponent(url.pathname.slice("/api/variables/".length));
     const body = await parseJsonBody(req);
     const variable = normalizeVariable(body);
 
-    const existing = storage.list().find((item) => item.name === oldName);
+    const existing = storage.list(collection).find((item) => item.name === oldName);
     if (!existing) {
       sendJson(res, 404, {error: "变量不存在"});
       return;
     }
 
     if (oldName !== variable.name) {
-      const dependents = storage.getDependents(oldName);
+      const dependents = storage.getDependents(oldName, collection);
       try {
-        await storage.renameWithCascade(oldName, variable);
+        await storage.renameWithCascade(oldName, variable, collection);
       } catch (error) {
         if (error.message === "新变量名已存在") {
           sendJson(res, 409, {error: "新变量名已存在"});
@@ -294,22 +366,23 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    await storage.upsert(variable);
+    await storage.upsert(variable, collection);
     sendJson(res, 200, {ok: true, variable});
     return;
   }
 
   if (req.method === "DELETE" && url.pathname.startsWith("/api/variables/")) {
+    const collection = getCollectionName(url);
     const name = decodeURIComponent(url.pathname.slice("/api/variables/".length));
     const force = url.searchParams.get("force") === "1";
 
-    const exists = storage.list().some((item) => item.name === name);
+    const exists = storage.list(collection).some((item) => item.name === name);
     if (!exists) {
       sendJson(res, 404, {error: "变量不存在"});
       return;
     }
 
-    const dependents = storage.getDependents(name);
+    const dependents = storage.getDependents(name, collection);
     if (dependents.length > 0 && !force) {
       sendJson(res, 409, {
         error: "该变量被其他变量作为输入参数引用",
@@ -319,7 +392,7 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    await storage.remove(name);
+    await storage.remove(name, collection);
     sendJson(res, 200, {ok: true});
     return;
   }
@@ -354,6 +427,12 @@ async function onRequest(req, res) {
 
 async function start() {
   await storage.init();
+  await frontOnlyStorage.init();
+  try {
+    await frontOnlyStorage.createCollection(FRONT_ONLY_COLLECTION);
+  } catch (error) {
+    if (error.message !== "变量集合已存在") throw error;
+  }
   const port = Number.parseInt(process.env.PORT || "5173", 10);
 
   const server = http.createServer((req, res) => {
@@ -366,6 +445,7 @@ async function start() {
 
   const shutdown = async () => {
     await storage.close();
+    await frontOnlyStorage.close();
     server.close(() => process.exit(0));
   };
 

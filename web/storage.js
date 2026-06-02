@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import initSqlJs from "sql.js";
 
+const DEFAULT_COLLECTION = "默认集合";
+
 function isIdentifierStart(ch) {
   return /[A-Za-z_$]/.test(ch);
 }
@@ -72,24 +74,23 @@ export class VariableStorage {
     this.SQL = await initSqlJs();
     this.db = await this.openDatabase();
 
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS variables (
-        name TEXT PRIMARY KEY,
-        params_json TEXT NOT NULL,
-        expression TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    this.db.run("PRAGMA foreign_keys = ON");
+    this.ensureSchema();
 
-    const count = this.scalar("SELECT COUNT(1) AS c FROM variables");
-    if (count === 0) {
-      const fromFile = await this.loadFromFile();
-      if (fromFile.length > 0) {
-        for (const variable of fromFile) {
-          this.insertRow(variable);
+    const collectionCount = this.scalar("SELECT COUNT(1) AS c FROM collections");
+    if (collectionCount === 0) {
+      const snapshot = await this.loadFromFile();
+      if (snapshot.length > 0) {
+        for (const entry of snapshot) {
+          this.insertCollection(entry.name);
+          for (const variable of entry.variables) {
+            this.insertRow(entry.name, variable);
+          }
         }
-        await this.persistDatabase();
+      } else {
+        this.insertCollection(DEFAULT_COLLECTION);
       }
+      await this.persistDatabase();
     }
 
     await this.writeSnapshotFile();
@@ -103,8 +104,12 @@ export class VariableStorage {
     }
   }
 
-  list() {
-    return this.queryRows("SELECT name, params_json, expression FROM variables ORDER BY name ASC")
+  list(collection = DEFAULT_COLLECTION) {
+    const collectionName = this.normalizeCollectionName(collection);
+    return this.queryRows(
+      "SELECT name, params_json, expression FROM variables WHERE collection_name = ? ORDER BY name ASC",
+      [collectionName]
+    )
       .map((row) => ({
         name: row.name,
         params: JSON.parse(row.params_json),
@@ -112,14 +117,54 @@ export class VariableStorage {
       }));
   }
 
-  async upsert(variable) {
-    this.insertRow(variable);
+  listCollections() {
+    return this.queryRows(`
+      SELECT c.name, COUNT(v.name) AS variable_count
+      FROM collections c
+      LEFT JOIN variables v ON c.name = v.collection_name
+      GROUP BY c.name
+      ORDER BY c.name ASC
+    `).map((row) => ({
+      name: row.name,
+      variableCount: Number(row.variable_count || 0)
+    }));
+  }
+
+  async createCollection(name) {
+    const collectionName = this.normalizeCollectionName(name);
+    const exists = this.scalar("SELECT COUNT(1) AS c FROM collections WHERE name = ?", [collectionName]) > 0;
+    if (exists) throw new Error("变量集合已存在");
+    this.insertCollection(collectionName);
+    await this.persistDatabase();
+    await this.writeSnapshotFile();
+    return collectionName;
+  }
+
+  async removeCollection(name) {
+    const collectionName = this.normalizeCollectionName(name);
+    const exists = this.scalar("SELECT COUNT(1) AS c FROM collections WHERE name = ?", [collectionName]) > 0;
+    if (!exists) throw new Error("变量集合不存在");
+
+    const count = this.scalar("SELECT COUNT(1) AS c FROM collections");
+    if (count <= 1) throw new Error("至少保留一个变量集合");
+
+    this.db.run("DELETE FROM collections WHERE name = ?", [collectionName]);
     await this.persistDatabase();
     await this.writeSnapshotFile();
   }
 
-  async renameWithCascade(oldName, variable) {
-    const all = this.list();
+  async upsert(variable, collection = DEFAULT_COLLECTION) {
+    const collectionName = this.normalizeCollectionName(collection);
+    this.ensureCollectionExists(collectionName);
+    this.insertRow(collectionName, variable);
+    await this.persistDatabase();
+    await this.writeSnapshotFile();
+  }
+
+  async renameWithCascade(oldName, variable, collection = DEFAULT_COLLECTION) {
+    const collectionName = this.normalizeCollectionName(collection);
+    this.ensureCollectionExists(collectionName);
+    const all = this.list(collectionName);
     const exists = all.some((item) => item.name === oldName);
     if (!exists) {
       throw new Error("变量不存在");
@@ -132,10 +177,10 @@ export class VariableStorage {
     this.db.run("BEGIN TRANSACTION");
     try {
       if (oldName !== variable.name) {
-        this.db.run("DELETE FROM variables WHERE name = ?", [oldName]);
+        this.db.run("DELETE FROM variables WHERE collection_name = ? AND name = ?", [collectionName, oldName]);
       }
 
-      this.insertRow(variable);
+      this.insertRow(collectionName, variable);
 
       if (oldName !== variable.name) {
         const dependents = all.filter((item) => item.params.includes(oldName));
@@ -145,7 +190,7 @@ export class VariableStorage {
             params: dependent.params.map((param) => (param === oldName ? variable.name : param)),
             expression: rewriteIdentifier(dependent.expression, oldName, variable.name)
           };
-          this.insertRow(updated);
+          this.insertRow(collectionName, updated);
         }
       }
 
@@ -159,25 +204,30 @@ export class VariableStorage {
     await this.writeSnapshotFile();
   }
 
-  async remove(name) {
-    this.db.run("DELETE FROM variables WHERE name = ?", [name]);
+  async remove(name, collection = DEFAULT_COLLECTION) {
+    const collectionName = this.normalizeCollectionName(collection);
+    this.ensureCollectionExists(collectionName);
+    this.db.run("DELETE FROM variables WHERE collection_name = ? AND name = ?", [collectionName, name]);
     await this.persistDatabase();
     await this.writeSnapshotFile();
   }
 
-  async importVariables(variables, mode = "replace") {
+  async importVariables(variables, mode = "replace", collection = DEFAULT_COLLECTION) {
     if (mode !== "replace" && mode !== "merge") {
       throw new Error("不支持的导入模式");
     }
 
+    const collectionName = this.normalizeCollectionName(collection);
+    this.ensureCollectionExists(collectionName);
+
     this.db.run("BEGIN TRANSACTION");
     try {
       if (mode === "replace") {
-        this.db.run("DELETE FROM variables");
+        this.db.run("DELETE FROM variables WHERE collection_name = ?", [collectionName]);
       }
 
       for (const variable of variables) {
-        this.insertRow(variable);
+        this.insertRow(collectionName, variable);
       }
 
       this.db.run("COMMIT");
@@ -190,28 +240,101 @@ export class VariableStorage {
     await this.writeSnapshotFile();
   }
 
-  getDependents(name) {
-    const all = this.list();
+  getDependents(name, collection = DEFAULT_COLLECTION) {
+    const all = this.list(collection);
     return all
       .filter((item) => Array.isArray(item.params) && item.params.includes(name))
       .map((item) => item.name)
       .sort((a, b) => a.localeCompare(b));
   }
 
-  insertRow(variable) {
+  insertCollection(name) {
     this.db.run(`
-      INSERT INTO variables (name, params_json, expression, updated_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO collections (name, created_at, updated_at)
+      VALUES (?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
+        updated_at = excluded.updated_at
+    `, [
+      name,
+      new Date().toISOString(),
+      new Date().toISOString()
+    ]);
+  }
+
+  insertRow(collectionName, variable) {
+    this.db.run(`
+      INSERT INTO variables (collection_name, name, params_json, expression, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(collection_name, name) DO UPDATE SET
         params_json = excluded.params_json,
         expression = excluded.expression,
         updated_at = excluded.updated_at
     `, [
+      collectionName,
       variable.name,
       JSON.stringify(variable.params),
       variable.expression,
       new Date().toISOString()
     ]);
+
+    this.db.run("UPDATE collections SET updated_at = ? WHERE name = ?", [new Date().toISOString(), collectionName]);
+  }
+
+  ensureCollectionExists(collectionName) {
+    const exists = this.scalar("SELECT COUNT(1) AS c FROM collections WHERE name = ?", [collectionName]) > 0;
+    if (!exists) throw new Error("变量集合不存在");
+  }
+
+  normalizeCollectionName(name) {
+    const value = typeof name === "string" ? name.trim() : "";
+    if (!value) throw new Error("变量集合名不能为空");
+    if (value.length > 80) throw new Error("变量集合名过长");
+    return value;
+  }
+
+  ensureSchema() {
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS collections (
+        name TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+
+    const hasVariables = this.scalar("SELECT COUNT(1) AS c FROM sqlite_master WHERE type = 'table' AND name = 'variables'") > 0;
+    if (!hasVariables) {
+      this.createVariablesTable();
+      return;
+    }
+
+    const columns = this.queryRows("PRAGMA table_info(variables)").map((row) => row.name);
+    const hasCollectionColumn = columns.includes("collection_name");
+
+    if (hasCollectionColumn) return;
+
+    this.db.run("ALTER TABLE variables RENAME TO variables_legacy");
+    this.createVariablesTable();
+    this.insertCollection(DEFAULT_COLLECTION);
+    this.db.run(`
+      INSERT INTO variables (collection_name, name, params_json, expression, updated_at)
+      SELECT ?, name, params_json, expression, updated_at
+      FROM variables_legacy
+    `, [DEFAULT_COLLECTION]);
+    this.db.run("DROP TABLE variables_legacy");
+  }
+
+  createVariablesTable() {
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS variables (
+        collection_name TEXT NOT NULL,
+        name TEXT NOT NULL,
+        params_json TEXT NOT NULL,
+        expression TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (collection_name, name),
+        FOREIGN KEY (collection_name) REFERENCES collections(name) ON DELETE CASCADE
+      )
+    `);
   }
 
   async openDatabase() {
@@ -256,8 +379,22 @@ export class VariableStorage {
     try {
       const raw = await fs.readFile(this.jsonPath, "utf8");
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter((item) => item && typeof item.name === "string");
+      if (Array.isArray(parsed)) {
+        return [{
+          name: DEFAULT_COLLECTION,
+          variables: parsed.filter((item) => item && typeof item.name === "string")
+        }];
+      }
+
+      const groups = Array.isArray(parsed?.collections) ? parsed.collections : [];
+      return groups
+        .map((group) => ({
+          name: this.normalizeCollectionName(group?.name || ""),
+          variables: Array.isArray(group?.variables)
+            ? group.variables.filter((item) => item && typeof item.name === "string")
+            : []
+        }))
+        .filter((group) => group.variables.length > 0 || group.name);
     } catch (error) {
       if (error && error.code === "ENOENT") return [];
       throw error;
@@ -265,7 +402,15 @@ export class VariableStorage {
   }
 
   async writeSnapshotFile() {
-    const content = JSON.stringify(this.list(), null, 2);
+    const collections = this.listCollections().map((collection) => ({
+      name: collection.name,
+      variables: this.list(collection.name)
+    }));
+
+    const content = JSON.stringify({
+      version: 2,
+      collections
+    }, null, 2);
     await fs.writeFile(this.jsonPath, `${content}\n`, "utf8");
   }
 }

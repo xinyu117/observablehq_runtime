@@ -7,8 +7,45 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="page">
+    <main id="home-view" class="page">
       <section class="card form-card">
+        <h1>Runtime 变量集合</h1>
+        <p class="subtitle">首页展示多个变量集合，点击进入后可独立管理每个集合。</p>
+
+        <form id="collection-form" class="collection-form">
+          <label>
+            新建变量集合
+            <input id="collection-name" name="collection-name" placeholder="例如：订单结算规则" required />
+          </label>
+          <div class="form-actions">
+            <button id="create-collection-btn" type="submit" class="secondary">创建集合</button>
+            <a class="button-link" href="/front-only.html">前端独立模式页面</a>
+          </div>
+        </form>
+      </section>
+
+      <section class="card table-card">
+        <h2>变量集合列表</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>集合名</th>
+              <th>变量数量</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="collections-body"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <main id="manager-view" class="page" hidden>
+      <section class="card form-card">
+        <div class="page-head">
+          <button id="back-home-btn" type="button" class="ghost">返回首页</button>
+          <span id="current-collection" class="mode-badge">集合: -</span>
+        </div>
+
         <h1>Runtime 变量管理</h1>
         <p class="subtitle">输入变量名、输入参数和变量值/计算式，支持后台结算与前端 Runtime 结算双模式。</p>
 
@@ -71,6 +108,12 @@
     <template id="empty-row-template">
       <tr>
         <td colspan="4" class="empty-row">暂无变量</td>
+      </tr>
+    </template>
+
+    <template id="empty-collection-row-template">
+      <tr>
+        <td colspan="3" class="empty-row">暂无变量集合</td>
       </tr>
     </template>
 

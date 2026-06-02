@@ -1,5 +1,17 @@
 import {Runtime} from "/runtime-src/index.js";
 
+const DEFAULT_COLLECTION = "默认集合";
+
+const homeView = document.getElementById("home-view");
+const managerView = document.getElementById("manager-view");
+const collectionForm = document.getElementById("collection-form");
+const collectionNameInput = document.getElementById("collection-name");
+const collectionsBody = document.getElementById("collections-body");
+const createCollectionBtn = document.getElementById("create-collection-btn");
+const backHomeBtn = document.getElementById("back-home-btn");
+const currentCollectionLabel = document.getElementById("current-collection");
+const emptyCollectionTemplate = document.getElementById("empty-collection-row-template");
+
 const form = document.getElementById("variable-form");
 const nameInput = document.getElementById("name");
 const paramsInput = document.getElementById("params");
@@ -59,6 +71,63 @@ let editingName = null;
 let pendingImport = null;
 let currentImportPreview = null;
 let asyncValuesTask = null;
+let selectedCollection = null;
+
+function getRouteCollection() {
+  const url = new URL(window.location.href);
+  const value = url.searchParams.get("collection");
+  const collection = typeof value === "string" ? value.trim() : "";
+  return collection || "";
+}
+
+function updateRouteCollection(name, {replace = false} = {}) {
+  const url = new URL(window.location.href);
+  if (name) {
+    url.searchParams.set("collection", name);
+  } else {
+    url.searchParams.delete("collection");
+  }
+
+  const method = replace ? "replaceState" : "pushState";
+  window.history[method]({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function buildApiUrl(rawUrl) {
+  const url = new URL(rawUrl, window.location.origin);
+  const isApi = url.pathname.startsWith("/api/");
+  const isCollectionManagementApi = url.pathname.startsWith("/api/collections");
+
+  if (isApi && !isCollectionManagementApi && selectedCollection) {
+    url.searchParams.set("collection", selectedCollection);
+  }
+
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function showHomeView() {
+  homeView.hidden = false;
+  managerView.hidden = true;
+}
+
+function showManagerView() {
+  homeView.hidden = true;
+  managerView.hidden = false;
+}
+
+function clearManagerState() {
+  cancelValuesAsync({silent: true});
+  backendVariables = [];
+  localVariables = [];
+  localInitialized = false;
+  resetForm();
+  renderTable();
+  valuesOutput.textContent = "点击“查看当前所有变量和值”加载";
+}
+
+function setSelectedCollection(name) {
+  selectedCollection = name || null;
+  currentCollectionLabel.textContent = `集合: ${selectedCollection || "-"}`;
+}
 
 function cloneVariables(list) {
   return list.map((item) => ({
@@ -367,7 +436,7 @@ function renderTable() {
 }
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, {
+  const response = await fetch(buildApiUrl(url), {
     headers: {"Content-Type": "application/json"},
     ...options
   });
@@ -384,7 +453,7 @@ async function requestJson(url, options = {}) {
 }
 
 async function exportVariablesBackend() {
-  const response = await fetch("/api/export");
+  const response = await fetch(buildApiUrl("/api/export"));
   if (!response.ok) {
     throw new Error(`导出失败: ${response.status}`);
   }
@@ -392,8 +461,9 @@ async function exportVariablesBackend() {
   const blob = await response.blob();
   const link = document.createElement("a");
   const now = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeCollection = (selectedCollection || DEFAULT_COLLECTION).replace(/\s+/g, "-");
   link.href = URL.createObjectURL(blob);
-  link.download = `variables-export-${now}.json`;
+  link.download = `variables-export-${safeCollection}-${now}.json`;
   document.body.appendChild(link);
   link.click();
   URL.revokeObjectURL(link.href);
@@ -625,6 +695,86 @@ async function loadVariablesFromBackend() {
   renderTable();
 }
 
+function renderCollectionsTable(collections) {
+  collectionsBody.innerHTML = "";
+
+  if (!Array.isArray(collections) || collections.length === 0) {
+    const clone = emptyCollectionTemplate.content.cloneNode(true);
+    collectionsBody.appendChild(clone);
+    return;
+  }
+
+  for (const collection of collections) {
+    const tr = document.createElement("tr");
+
+    const nameTd = document.createElement("td");
+    nameTd.textContent = collection.name;
+
+    const countTd = document.createElement("td");
+    countTd.textContent = String(collection.variableCount || 0);
+
+    const actionTd = document.createElement("td");
+    const actions = document.createElement("div");
+    actions.className = "collections-actions";
+
+    const enterBtn = document.createElement("button");
+    enterBtn.type = "button";
+    enterBtn.className = "secondary";
+    enterBtn.textContent = "进入管理";
+    enterBtn.addEventListener("click", async () => {
+      await openCollectionManager(collection.name);
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "ghost";
+    deleteBtn.textContent = "删除集合";
+    deleteBtn.addEventListener("click", async () => {
+      const ok = window.confirm(`确认删除变量集合“${collection.name}”吗？该集合内变量会被全部删除。`);
+      if (!ok) return;
+
+      try {
+        await requestJson(`/api/collections/${encodeURIComponent(collection.name)}`, {method: "DELETE"});
+        await loadCollections();
+      } catch (error) {
+        window.alert(error.message);
+      }
+    });
+
+    actions.append(enterBtn, deleteBtn);
+    actionTd.appendChild(actions);
+
+    tr.append(nameTd, countTd, actionTd);
+    collectionsBody.appendChild(tr);
+  }
+}
+
+async function loadCollections() {
+  const payload = await requestJson("/api/collections");
+  renderCollectionsTable(payload.collections || []);
+}
+
+async function openCollectionManager(name, {replaceRoute = false} = {}) {
+  const collectionName = String(name || "").trim();
+  if (!collectionName) return;
+
+  setSelectedCollection(collectionName);
+  updateRouteCollection(collectionName, {replace: replaceRoute});
+  clearManagerState();
+  showManagerView();
+
+  await loadVariablesFromBackend();
+  setMode("backend");
+}
+
+async function backToHome({replaceRoute = false} = {}) {
+  setSelectedCollection(null);
+  updateRouteCollection("", {replace: replaceRoute});
+  clearManagerState();
+  showHomeView();
+  await loadCollections();
+}
+
 async function evaluateVariablesLocal(items) {
   const runtime = new Runtime(builtinValues);
   const module = runtime.module();
@@ -816,7 +966,7 @@ async function loadValuesAsync() {
     })();
 
     if (mode === "backend") {
-      const response = await fetch("/api/values/stream", {signal});
+      const response = await fetch(buildApiUrl("/api/values/stream"), {signal});
       if (!response.ok) {
         throw new Error(`请求失败: ${response.status}`);
       }
@@ -1151,7 +1301,47 @@ modeLocalBtn.addEventListener("click", async () => {
   setMode("local");
 });
 
+collectionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = collectionNameInput.value.trim();
+  if (!name) {
+    window.alert("变量集合名不能为空");
+    return;
+  }
+
+  createCollectionBtn.disabled = true;
+  try {
+    await requestJson("/api/collections", {
+      method: "POST",
+      body: JSON.stringify({name})
+    });
+    collectionForm.reset();
+    await loadCollections();
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    createCollectionBtn.disabled = false;
+  }
+});
+
+backHomeBtn.addEventListener("click", async () => {
+  await backToHome();
+});
+
+window.addEventListener("popstate", async () => {
+  const routeCollection = getRouteCollection();
+  if (routeCollection) {
+    await openCollectionManager(routeCollection, {replaceRoute: true});
+  } else {
+    await backToHome({replaceRoute: true});
+  }
+});
+
 (async function boot() {
-  await loadVariablesFromBackend();
-  setMode("backend");
+  const routeCollection = getRouteCollection();
+  if (routeCollection) {
+    await openCollectionManager(routeCollection, {replaceRoute: true});
+  } else {
+    await backToHome({replaceRoute: true});
+  }
 })();
