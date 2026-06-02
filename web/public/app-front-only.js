@@ -1,4 +1,4 @@
-import {Runtime} from "/runtime-src/index.js";
+﻿import {Runtime} from "/runtime-src/index.js";
 
 const form = document.getElementById("variable-form");
 const nameInput = document.getElementById("name");
@@ -40,6 +40,10 @@ const builtinValues = {
 let variables = [];
 let editingName = null;
 let dirty = false;
+let runtime = null;
+let runtimeModule = null;
+let valueByName = new Map();
+const variableHandles = new Map();
 
 function cloneVariables(list) {
   return list.map((item) => ({
@@ -72,6 +76,19 @@ function resetForm() {
   editingName = null;
   form.reset();
   setFormMode(false);
+}
+
+function ensureRuntime() {
+  if (runtime && runtimeModule) return;
+  runtime = new Runtime(builtinValues);
+  runtimeModule = runtime.module();
+}
+
+function resetRuntime() {
+  if (runtime) runtime.dispose();
+  runtime = null;
+  runtimeModule = null;
+  variableHandles.clear();
 }
 
 function validateVariable(variable, excludedName = "") {
@@ -139,17 +156,24 @@ function renderTable() {
     deleteBtn.type = "button";
     deleteBtn.textContent = "删除";
     deleteBtn.addEventListener("click", async () => {
+      const previousGraph = buildDependentsGraph(variables);
       const dependents = listDependents(variable.name);
       if (dependents.length > 0) {
         const ok = window.confirm(`变量 ${variable.name} 被以下变量依赖: ${dependents.join(", ")}\n确认继续删除吗？`);
         if (!ok) return;
       }
 
+      removeVariableFromRuntime(variable.name);
       variables = variables.filter((item) => item.name !== variable.name);
+      valueByName.delete(variable.name);
       if (editingName === variable.name) resetForm();
+
+      const nextGraph = buildDependentsGraph(variables);
+      const affected = collectAffectedNames([variable.name], previousGraph, nextGraph);
+
       setDirty(true);
       renderTable();
-      await loadValues();
+      await recomputeAffectedValues([...affected]);
     });
 
     actions.append(editBtn, deleteBtn);
@@ -281,6 +305,113 @@ function createDefinition(variable) {
   };
 }
 
+function safeCreateDefinition(variable) {
+  try {
+    return createDefinition(variable);
+  } catch (error) {
+    return {
+      dependencies: [],
+      definition: () => {
+        throw error;
+      }
+    };
+  }
+}
+
+function getDeclaredDependencies(variable) {
+  const params = Array.isArray(variable.params) ? variable.params : [];
+  if (params.length > 0) {
+    return params.filter((name) => name !== variable.name);
+  }
+
+  if (isFunctionExpression(variable.expression)) {
+    return [];
+  }
+
+  return extractDependencies(variable.expression).filter((name) => name !== variable.name);
+}
+
+function buildDependentsGraph(list) {
+  const names = new Set(list.map((item) => item.name));
+  const graph = new Map();
+
+  for (const item of list) {
+    if (!graph.has(item.name)) graph.set(item.name, new Set());
+  }
+
+  for (const item of list) {
+    const deps = getDeclaredDependencies(item);
+    for (const dep of deps) {
+      if (!names.has(dep)) continue;
+      if (!graph.has(dep)) graph.set(dep, new Set());
+      graph.get(dep).add(item.name);
+    }
+  }
+
+  return graph;
+}
+
+function collectAffectedFromGraph(graph, startNames) {
+  const affected = new Set();
+  const queue = [];
+
+  for (const name of startNames) {
+    if (!name) continue;
+    if (!affected.has(name)) {
+      affected.add(name);
+      queue.push(name);
+    }
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const dependents = graph.get(current);
+    if (!dependents) continue;
+    for (const dependent of dependents) {
+      if (affected.has(dependent)) continue;
+      affected.add(dependent);
+      queue.push(dependent);
+    }
+  }
+
+  return affected;
+}
+
+function collectAffectedNames(startNames, prevGraph, nextGraph) {
+  const result = new Set();
+  for (const name of collectAffectedFromGraph(prevGraph, startNames)) result.add(name);
+  for (const name of collectAffectedFromGraph(nextGraph, startNames)) result.add(name);
+  return result;
+}
+
+function applyVariableToRuntime(variable) {
+  ensureRuntime();
+
+  let handle = variableHandles.get(variable.name);
+  if (!handle) {
+    handle = runtimeModule.variable(true);
+    variableHandles.set(variable.name, handle);
+  }
+
+  const {dependencies, definition} = safeCreateDefinition(variable);
+  handle.define(variable.name, dependencies, definition);
+}
+
+function removeVariableFromRuntime(name) {
+  const handle = variableHandles.get(name);
+  if (!handle) return;
+  handle.delete();
+  variableHandles.delete(name);
+}
+
+function initializeRuntimeFromVariables() {
+  resetRuntime();
+  ensureRuntime();
+  for (const variable of variables) {
+    applyVariableToRuntime(variable);
+  }
+}
+
 function formatInspectable(value) {
   if (typeof value === "string") return JSON.stringify(value);
   if (typeof value === "function") return "[Function]";
@@ -296,53 +427,71 @@ function formatInspectable(value) {
   }
 }
 
-async function evaluateVariablesLocal(items) {
-  const runtime = new Runtime(builtinValues);
-  const module = runtime.module();
-  const ordered = [...items].sort((a, b) => a.name.localeCompare(b.name));
-
-  try {
-    for (const variable of ordered) {
-      const {dependencies, definition} = createDefinition(variable);
-      module.define(variable.name, dependencies, definition);
-    }
-
-    const values = [];
-    for (const variable of ordered) {
-      try {
-        const value = await module.value(variable.name);
-        values.push({name: variable.name, value: formatInspectable(value)});
-      } catch (error) {
-        values.push({name: variable.name, error: error.message});
-      }
-    }
-
-    return values;
-  } finally {
-    runtime.dispose();
+function renderValuesBoard() {
+  if (variables.length === 0) {
+    valuesOutput.textContent = "当前没有已定义变量。";
+    return;
   }
+
+  const ordered = [...variables].map((item) => item.name).sort((a, b) => a.localeCompare(b));
+  const lines = ordered.map((name) => `${name} = ${valueByName.get(name) ?? "<pending>"}`);
+  valuesOutput.textContent = lines.join("\n");
+}
+
+async function recomputeAffectedValues(targetNames) {
+  if (!runtimeModule) {
+    valuesOutput.textContent = "当前没有已定义变量。";
+    return;
+  }
+
+  const nameSet = new Set(variables.map((item) => item.name));
+  const names = [...new Set(targetNames)]
+    .filter((name) => nameSet.has(name))
+    .sort((a, b) => a.localeCompare(b));
+
+  if (names.length === 0) {
+    renderValuesBoard();
+    return;
+  }
+
+  for (const name of names) {
+    try {
+      const value = await runtimeModule.value(name);
+      valueByName.set(name, formatInspectable(value));
+    } catch (error) {
+      valueByName.set(name, `<Error: ${error.message}>`);
+    }
+  }
+
+  renderValuesBoard();
 }
 
 async function loadValues() {
-  valuesOutput.textContent = "加载中...";
-  try {
-    const values = await evaluateVariablesLocal(variables);
-    const lines = values.map((item) => item.error
-      ? `${item.name} = <Error: ${item.error}>`
-      : `${item.name} = ${item.value}`
-    );
-    valuesOutput.textContent = lines.length ? lines.join("\n") : "当前没有已定义变量。";
-  } catch (error) {
-    valuesOutput.textContent = `错误: ${error.message}`;
-  }
+  await recomputeAffectedValues(variables.map((item) => item.name));
 }
 
-function mergeImportedVariables(imported) {
+async function mergeImportedVariables(imported) {
+  const previousGraph = buildDependentsGraph(variables);
+  const changedNames = imported.map((item) => item.name);
+
   const map = new Map(variables.map((item) => [item.name, item]));
   for (const item of imported) {
-    map.set(item.name, item);
+    map.set(item.name, {
+      name: item.name,
+      params: [...item.params],
+      expression: item.expression
+    });
   }
   variables = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const item of imported) {
+    applyVariableToRuntime(item);
+    if (!valueByName.has(item.name)) valueByName.set(item.name, "<pending>");
+  }
+
+  const nextGraph = buildDependentsGraph(variables);
+  const affected = collectAffectedNames(changedNames, previousGraph, nextGraph);
+  await recomputeAffectedValues([...affected]);
 }
 
 function parseCsvToVariables(text) {
@@ -403,8 +552,12 @@ async function loadSavedVariables() {
   const payload = await requestJson("/api/front-only/variables");
   variables = cloneVariables(payload.variables || []);
   variables.sort((a, b) => a.name.localeCompare(b.name));
+
+  valueByName = new Map(variables.map((item) => [item.name, "<pending>"]));
+  initializeRuntimeFromVariables();
+
   renderTable();
-  await loadValues();
+  renderValuesBoard();
   setDirty(false);
 }
 
@@ -441,17 +594,30 @@ form.addEventListener("submit", async (event) => {
   try {
     validateVariable(variable, editingName || "");
 
-    if (editingName) {
-      variables = variables.map((item) => (item.name === editingName ? variable : item));
+    const previousGraph = buildDependentsGraph(variables);
+    const previousName = editingName;
+
+    if (previousName) {
+      variables = variables.map((item) => (item.name === previousName ? variable : item));
+      if (previousName !== variable.name) {
+        removeVariableFromRuntime(previousName);
+        valueByName.delete(previousName);
+      }
     } else {
       variables = [...variables, variable];
     }
 
+    applyVariableToRuntime(variable);
+    if (!valueByName.has(variable.name)) valueByName.set(variable.name, "<pending>");
+
     variables.sort((a, b) => a.name.localeCompare(b.name));
+    const nextGraph = buildDependentsGraph(variables);
+    const affected = collectAffectedNames([previousName, variable.name], previousGraph, nextGraph);
+
     resetForm();
     setDirty(true);
     renderTable();
-    await loadValues();
+    await recomputeAffectedValues([...affected]);
   } catch (error) {
     window.alert(error.message);
   }
@@ -477,10 +643,9 @@ csvFile.addEventListener("change", async () => {
   try {
     const text = await file.text();
     const imported = parseCsvToVariables(text);
-    mergeImportedVariables(imported);
+    await mergeImportedVariables(imported);
     setDirty(true);
     renderTable();
-    await loadValues();
     window.alert(`CSV 导入完成，共生成/更新 ${imported.length} 个变量`);
   } catch (error) {
     window.alert(`CSV 导入失败: ${error.message}`);
