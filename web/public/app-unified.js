@@ -15,6 +15,7 @@ const emptyCollectionTemplate = document.getElementById("empty-collection-row-te
 const form = document.getElementById("variable-form");
 const nameInput = document.getElementById("name");
 const paramsInput = document.getElementById("params");
+const optionParamsInput = document.getElementById("option-params");
 const expressionInput = document.getElementById("expression");
 const submitBtn = document.getElementById("submit-btn");
 const cancelBtn = document.getElementById("cancel-btn");
@@ -133,6 +134,9 @@ function cloneVariables(list) {
   return list.map((item) => ({
     name: item.name,
     params: Array.isArray(item.params) ? [...item.params] : [],
+    options: {
+      params: normalizeOptionParams(item?.options?.params)
+    },
     expression: item.expression
   }));
 }
@@ -159,6 +163,45 @@ function parseParams(input) {
         .filter(Boolean)
     )
   );
+}
+
+function normalizeOptionParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = String(rawKey || "").trim();
+    if (!key) continue;
+    result[key] = String(rawValue ?? "");
+  }
+  return result;
+}
+
+function parseOptionParams(input) {
+  const text = String(input || "").trim();
+  if (!text) return {};
+
+  const result = {};
+  const segments = text.split(",").map((item) => item.trim()).filter(Boolean);
+  for (const segment of segments) {
+    const separatorAt = segment.indexOf(":");
+    if (separatorAt < 0) {
+      throw new Error(`params 项格式错误: ${segment}`);
+    }
+    const key = segment.slice(0, separatorAt).trim();
+    const value = segment.slice(separatorAt + 1).trim();
+    if (!key) throw new Error(`params 键不能为空: ${segment}`);
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+      throw new Error(`params 键不合法: ${key}`);
+    }
+    result[key] = value;
+  }
+
+  return result;
+}
+
+function stringifyOptionParams(optionParams) {
+  const entries = Object.entries(normalizeOptionParams(optionParams));
+  return entries.map(([key, value]) => `${key}:${value}`).join(", ");
 }
 
 function stringifyParams(params) {
@@ -343,6 +386,11 @@ function createDefinition(variable) {
   };
 }
 
+function getVariableOptions(variable) {
+  const params = normalizeOptionParams(variable?.options?.params);
+  return Object.keys(params).length > 0 ? {params} : undefined;
+}
+
 function formatInspectable(value) {
   if (typeof value === "string") return JSON.stringify(value);
   if (typeof value === "function") return "[Function]";
@@ -369,6 +417,12 @@ function validateVariable(variable, excludedName = "") {
 
   if (variable.params.includes(variable.name)) {
     throw new Error("输入参数不能包含变量自身");
+  }
+
+  for (const key of Object.keys(normalizeOptionParams(variable?.options?.params))) {
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+      throw new Error(`params 键不合法: ${key}`);
+    }
   }
 
   const duplicate = activeVariables().find((item) => item.name === variable.name && item.name !== excludedName);
@@ -403,6 +457,9 @@ function renderTable() {
     const paramsTd = document.createElement("td");
     paramsTd.textContent = stringifyParams(variable.params);
 
+    const optionParamsTd = document.createElement("td");
+    optionParamsTd.textContent = stringifyOptionParams(variable?.options?.params);
+
     const expressionTd = document.createElement("td");
     expressionTd.textContent = variable.expression;
 
@@ -417,6 +474,7 @@ function renderTable() {
       editingName = variable.name;
       nameInput.value = variable.name;
       paramsInput.value = stringifyParams(variable.params);
+      optionParamsInput.value = stringifyOptionParams(variable?.options?.params);
       expressionInput.value = variable.expression;
       setFormMode(true);
     });
@@ -430,7 +488,7 @@ function renderTable() {
 
     actions.append(editBtn, deleteBtn);
     actionTd.appendChild(actions);
-    tr.append(nameTd, paramsTd, expressionTd, actionTd);
+    tr.append(nameTd, paramsTd, optionParamsTd, expressionTd, actionTd);
     tableBody.appendChild(tr);
   }
 }
@@ -497,6 +555,9 @@ function normalizeImportedVariable(raw) {
   return {
     name: String(raw?.name || "").trim(),
     params: parseParams(Array.isArray(raw?.params) ? raw.params.join(",") : String(raw?.params || "")),
+    options: {
+      params: normalizeOptionParams(raw?.options?.params)
+    },
     expression: String(raw?.expression || "").trim()
   };
 }
@@ -532,6 +593,15 @@ function variableEquals(a, b) {
   if (a.params.length !== b.params.length) return false;
   for (let i = 0; i < a.params.length; i += 1) {
     if (a.params[i] !== b.params[i]) return false;
+  }
+  const aOptions = normalizeOptionParams(a?.options?.params);
+  const bOptions = normalizeOptionParams(b?.options?.params);
+  const aKeys = Object.keys(aOptions).sort();
+  const bKeys = Object.keys(bOptions).sort();
+  if (aKeys.length !== bKeys.length) return false;
+  for (let i = 0; i < aKeys.length; i += 1) {
+    if (aKeys[i] !== bKeys[i]) return false;
+    if (aOptions[aKeys[i]] !== bOptions[bKeys[i]]) return false;
   }
   return true;
 }
@@ -783,7 +853,9 @@ async function evaluateVariablesLocal(items) {
   try {
     for (const variable of ordered) {
       const {dependencies, definition} = createDefinition(variable);
-      module.define(variable.name, dependencies, definition);
+      module
+        .variable(true, getVariableOptions(variable))
+        .define(variable.name, dependencies, definition);
     }
 
     const values = [];
@@ -855,7 +927,9 @@ async function evaluateVariablesLocalWithObserver(items, {signal, onUpdate}) {
   try {
     for (const variable of ordered) {
       const {dependencies, definition} = createDefinition(variable);
-      module.define(variable.name, dependencies, definition);
+      module
+        .variable(true, getVariableOptions(variable))
+        .define(variable.name, dependencies, definition);
     }
 
     await new Promise((resolve, reject) => {
@@ -1117,6 +1191,9 @@ form.addEventListener("submit", async (event) => {
   const variable = {
     name: nameInput.value.trim(),
     params: parseParams(paramsInput.value),
+    options: {
+      params: parseOptionParams(optionParamsInput.value)
+    },
     expression: expressionInput.value.trim()
   };
 

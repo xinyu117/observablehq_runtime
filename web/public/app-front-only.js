@@ -3,6 +3,7 @@
 const form = document.getElementById("variable-form");
 const nameInput = document.getElementById("name");
 const paramsInput = document.getElementById("params");
+const optionParamsInput = document.getElementById("option-params");
 const expressionInput = document.getElementById("expression");
 const submitBtn = document.getElementById("submit-btn");
 const cancelBtn = document.getElementById("cancel-btn");
@@ -49,6 +50,9 @@ function cloneVariables(list) {
   return list.map((item) => ({
     name: item.name,
     params: Array.isArray(item.params) ? [...item.params] : [],
+    options: {
+      params: normalizeOptionParams(item?.options?.params)
+    },
     expression: item.expression
   }));
 }
@@ -56,6 +60,45 @@ function cloneVariables(list) {
 function parseParams(input) {
   if (!input.trim()) return [];
   return Array.from(new Set(input.split(",").map((item) => item.trim()).filter(Boolean)));
+}
+
+function normalizeOptionParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = String(rawKey || "").trim();
+    if (!key) continue;
+    result[key] = String(rawValue ?? "");
+  }
+  return result;
+}
+
+function parseOptionParams(input) {
+  const text = String(input || "").trim();
+  if (!text) return {};
+
+  const result = {};
+  const segments = text.split(",").map((item) => item.trim()).filter(Boolean);
+  for (const segment of segments) {
+    const separatorAt = segment.indexOf(":");
+    if (separatorAt < 0) {
+      throw new Error(`params 项格式错误: ${segment}`);
+    }
+    const key = segment.slice(0, separatorAt).trim();
+    const value = segment.slice(separatorAt + 1).trim();
+    if (!key) throw new Error(`params 键不能为空: ${segment}`);
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+      throw new Error(`params 键不合法: ${key}`);
+    }
+    result[key] = value;
+  }
+
+  return result;
+}
+
+function stringifyOptionParams(optionParams) {
+  const entries = Object.entries(normalizeOptionParams(optionParams));
+  return entries.map(([key, value]) => `${key}:${value}`).join(", ");
 }
 
 function stringifyParams(params) {
@@ -104,6 +147,12 @@ function validateVariable(variable, excludedName = "") {
     throw new Error("输入参数不能包含变量自身");
   }
 
+  for (const key of Object.keys(normalizeOptionParams(variable?.options?.params))) {
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+      throw new Error(`params 键不合法: ${key}`);
+    }
+  }
+
   const duplicate = variables.find((item) => item.name === variable.name && item.name !== excludedName);
   if (duplicate) {
     throw new Error(`变量名已存在: ${variable.name}`);
@@ -134,6 +183,9 @@ function renderTable() {
     const paramsTd = document.createElement("td");
     paramsTd.textContent = stringifyParams(variable.params);
 
+    const optionParamsTd = document.createElement("td");
+    optionParamsTd.textContent = stringifyOptionParams(variable?.options?.params);
+
     const expressionTd = document.createElement("td");
     expressionTd.textContent = variable.expression;
 
@@ -148,6 +200,7 @@ function renderTable() {
       editingName = variable.name;
       nameInput.value = variable.name;
       paramsInput.value = stringifyParams(variable.params);
+      optionParamsInput.value = stringifyOptionParams(variable?.options?.params);
       expressionInput.value = variable.expression;
       setFormMode(true);
     });
@@ -162,7 +215,7 @@ function renderTable() {
     actions.append(editBtn, deleteBtn);
     actionTd.appendChild(actions);
 
-    tr.append(nameTd, paramsTd, expressionTd, actionTd);
+    tr.append(nameTd, paramsTd, optionParamsTd, expressionTd, actionTd);
     tableBody.appendChild(tr);
   }
 }
@@ -306,6 +359,11 @@ function createDefinition(variable) {
   };
 }
 
+function getVariableOptions(variable) {
+  const params = normalizeOptionParams(variable?.options?.params);
+  return Object.keys(params).length > 0 ? {params} : undefined;
+}
+
 function safeCreateDefinition(variable) {
   try {
     return createDefinition(variable);
@@ -355,10 +413,13 @@ function applyVariableToRuntime(variable) {
   ensureRuntime();
 
   let handle = variableHandles.get(variable.name);
-  if (!handle) {
-    handle = runtimeModule.variable(createObserver(variable.name));
-    variableHandles.set(variable.name, handle);
+  if (handle) {
+    handle.delete();
+    variableHandles.delete(variable.name);
   }
+
+  handle = runtimeModule.variable(createObserver(variable.name), getVariableOptions(variable));
+  variableHandles.set(variable.name, handle);
 
   const {dependencies, definition} = safeCreateDefinition(variable);
   handle.define(variable.name, dependencies, definition);
@@ -385,6 +446,9 @@ async function mergeImportedVariables(imported) {
     map.set(item.name, {
       name: item.name,
       params: [...item.params],
+      options: {
+        params: normalizeOptionParams(item?.options?.params)
+      },
       expression: item.expression
     });
   }
@@ -403,14 +467,25 @@ function parseCsvToVariables(text) {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (lines.length === 0) throw new Error("CSV 文件为空");
 
-  const grouped = new Map();
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const raw = lines[i];
+  const readCells = (raw) => {
     const cells = raw.split(",").map((item) => item.trim());
     while (cells.length > 0 && cells[cells.length - 1] === "") {
       cells.pop();
     }
+    return cells;
+  };
+
+  const firstCells = readCells(lines[0]).map((item) => item.toLowerCase());
+  const hasHeader = firstCells[0] === "name"
+    && (firstCells[1] === "input" || firstCells[1] === "param")
+    && (firstCells[2] === "function" || firstCells[2] === "expression");
+  const optionKeys = hasHeader ? firstCells.slice(3).filter(Boolean) : [];
+  const startAt = hasHeader ? 1 : 0;
+  const grouped = new Map();
+
+  for (let i = startAt; i < lines.length; i += 1) {
+    const raw = lines[i];
+    const cells = readCells(raw);
 
     if (cells.length < 3) {
       throw new Error(`第 ${i + 1} 行格式错误，应至少包含 name,param,expression`);
@@ -418,7 +493,18 @@ function parseCsvToVariables(text) {
 
     const name = cells[0];
     const param = cells[1];
-    const expression = cells.slice(2).join(",").trim();
+    const expression = hasHeader ? cells[2].trim() : cells.slice(2).join(",").trim();
+    const optionParams = {};
+
+    if (hasHeader) {
+      for (let j = 0; j < optionKeys.length; j += 1) {
+        const key = optionKeys[j];
+        if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+          throw new Error(`CSV 头部 params 键不合法: ${key}`);
+        }
+        optionParams[key] = String(cells[3 + j] ?? "").trim();
+      }
+    }
 
     if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
       throw new Error(`第 ${i + 1} 行变量名不合法: ${name}`);
@@ -434,7 +520,12 @@ function parseCsvToVariables(text) {
 
     const current = grouped.get(name);
     if (!current) {
-      grouped.set(name, {name, params: [param], expression});
+      grouped.set(name, {
+        name,
+        params: [param],
+        options: {params: optionParams},
+        expression
+      });
       continue;
     }
 
@@ -443,6 +534,13 @@ function parseCsvToVariables(text) {
     }
 
     if (!current.params.includes(param)) current.params.push(param);
+    for (const [key, value] of Object.entries(optionParams)) {
+      const existing = current.options.params[key] ?? "";
+      if (existing && value && existing !== value) {
+        throw new Error(`变量 ${name} 的 params.${key} 不一致，无法合并`);
+      }
+      if (!existing) current.options.params[key] = value;
+    }
   }
 
   const result = [...grouped.values()];
@@ -501,11 +599,14 @@ function deleteVariable(name) {
 }
 
 form.addEventListener("submit", async (event) => {
-  event.preventDefault();
+  event.preventDefault(); // 阻止默认提交行为,不会刷新页面
 
   const variable = {
     name: nameInput.value.trim(),
     params: parseParams(paramsInput.value),
+    options: {
+      params: parseOptionParams(optionParamsInput.value)
+    },
     expression: expressionInput.value.trim()
   };
 

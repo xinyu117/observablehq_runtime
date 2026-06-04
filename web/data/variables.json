@@ -7,6 +7,9 @@
         {
           "name": "a",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "1"
         },
         {
@@ -14,6 +17,9 @@
           "params": [
             "a"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "a+1"
         },
         {
@@ -22,11 +28,17 @@
             "a",
             "b"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "a+b*2"
         },
         {
           "name": "d",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "[1,2,3]"
         },
         {
@@ -34,6 +46,9 @@
           "params": [
             "d"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "d[1]"
         }
       ]
@@ -44,11 +59,17 @@
         {
           "name": "Or",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "\"Or\""
         },
         {
           "name": "heck",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "\"heck\""
         },
         {
@@ -60,21 +81,33 @@
             "wanna",
             "you_know"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "\"Or,heck,you know,you wanna talk about making the world a better place?\""
         },
         {
           "name": "talk_about",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "\"talk about\""
         },
         {
           "name": "wanna",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "\"wanna\""
         },
         {
           "name": "you_know",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "\"you know\""
         }
       ]
@@ -85,11 +118,17 @@
         {
           "name": "b",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "111"
         },
         {
           "name": "base",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "7"
         },
         {
@@ -97,6 +136,9 @@
           "params": [
             "sleep"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "(async () => { await sleep(900); throw new Error('demo error from boom'); })()"
         },
         {
@@ -104,6 +146,9 @@
           "params": [
             "slowA"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "slowA + 1"
         },
         {
@@ -111,6 +156,9 @@
           "params": [
             "base"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "base * 10"
         },
         {
@@ -120,6 +168,9 @@
             "mixed",
             "randomWait"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "`${derivedFromA} | ${mixed} | ${randomWait}`"
         },
         {
@@ -128,6 +179,9 @@
             "fastValue",
             "slowB"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "`mix:${fastValue}-${slowB}`"
         },
         {
@@ -136,11 +190,17 @@
             "sleep",
             "base"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "(async () => { const ms = 200 + base * 50; await sleep(ms); return `waited:${ms}`; })()"
         },
         {
           "name": "sleep",
           "params": [],
+          "options": {
+            "params": {}
+          },
           "expression": "(ms) => new Promise((resolve) => setTimeout(resolve, ms))"
         },
         {
@@ -149,6 +209,9 @@
             "sleep",
             "base"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "(async () => { await sleep(1200); return base + 100; })()"
         },
         {
@@ -157,6 +220,9 @@
             "sleep",
             "base"
           ],
+          "options": {
+            "params": {}
+          },
           "expression": "(async () => { await sleep(400); return base * 3; })()"
         }
       ]

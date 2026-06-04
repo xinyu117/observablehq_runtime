@@ -7,32 +7,12 @@
         {
           "name": "a",
           "params": [],
-          "expression": "1"
-        },
-        {
-          "name": "b",
-          "params": [
-            "a"
-          ],
-          "expression": "a+1"
-        },
-        {
-          "name": "c1",
-          "params": [
-            "p1",
-            "p2",
-            "p3"
-          ],
-          "expression": "c1VALUE"
-        },
-        {
-          "name": "c2",
-          "params": [
-            "p1",
-            "p2",
-            "p4"
-          ],
-          "expression": "c1VALUE"
+          "options": {
+            "params": {
+              "level": "1"
+            }
+          },
+          "expression": "11"
         }
       ]
     },

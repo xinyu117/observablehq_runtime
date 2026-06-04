@@ -65,10 +65,27 @@ function normalizeParams(value) {
   return result;
 }
 
+function normalizeOptionParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result = {};
+
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = String(rawKey || "").trim();
+    if (!key) continue;
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+      throw new Error(`params 键不合法: ${key}`);
+    }
+    result[key] = String(rawValue ?? "");
+  }
+
+  return result;
+}
+
 function normalizeVariable(input) {
   const name = typeof input?.name === "string" ? input.name.trim() : "";
   const expression = typeof input?.expression === "string" ? input.expression.trim() : "";
   const params = normalizeParams(input?.params);
+  const options = {params: normalizeOptionParams(input?.options?.params)};
 
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
     throw new Error("变量名不合法");
@@ -82,7 +99,7 @@ function normalizeVariable(input) {
     throw new Error("输入参数不能包含变量自身");
   }
 
-  return {name, params, expression};
+  return {name, params, expression, options};
 }
 
 function normalizeVariableList(input) {
@@ -112,6 +129,15 @@ function variableEquals(a, b) {
   if (a.params.length !== b.params.length) return false;
   for (let i = 0; i < a.params.length; i += 1) {
     if (a.params[i] !== b.params[i]) return false;
+  }
+  const aOptions = a.options?.params || {};
+  const bOptions = b.options?.params || {};
+  const aKeys = Object.keys(aOptions).sort();
+  const bKeys = Object.keys(bOptions).sort();
+  if (aKeys.length !== bKeys.length) return false;
+  for (let i = 0; i < aKeys.length; i += 1) {
+    if (aKeys[i] !== bKeys[i]) return false;
+    if (String(aOptions[aKeys[i]]) !== String(bOptions[bKeys[i]])) return false;
   }
   return true;
 }

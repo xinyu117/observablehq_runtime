@@ -164,6 +164,17 @@ function createDefinition(variable) {
   };
 }
 
+function normalizeOptionParams(variable) {
+  const source = variable?.options?.params;
+  if (!source || typeof source !== "object") return null;
+  const params = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (!key) continue;
+    params[String(key)] = String(value ?? "");
+  }
+  return Object.keys(params).length > 0 ? params : null;
+}
+
 export async function* evaluateVariablesStream(variables) {
   const runtime = new Runtime(builtinValues);
   const module = runtime.module();
@@ -172,7 +183,10 @@ export async function* evaluateVariablesStream(variables) {
   try {
     for (const variable of ordered) {
       const {dependencies, definition} = createDefinition(variable);
-      module.define(variable.name, dependencies, definition);
+      const optionParams = normalizeOptionParams(variable);
+      module
+        .variable(true, optionParams ? {params: optionParams} : undefined)
+        .define(variable.name, dependencies, definition);
     }
 
     for (const variable of ordered) {

@@ -15,8 +15,29 @@ export const TYPE_DUPLICATE = 3; // created on duplicate definition
 export const no_observer = Symbol("no-observer");
 export const no_value = Promise.resolve();
 
+function initParams(options) {
+  if (!options?.params || typeof options.params !== "object") return null;
+
+  const params = {};
+  for (const [key, value] of Object.entries(options.params)) {
+    if (!key) continue;
+    params[String(key)] = value;
+  }
+  return params;
+}
+
+function applyParamsToInstance(target, params) {
+  if (!params) return;
+
+  for (const [key, value] of Object.entries(params)) {
+    if (key in target) continue;
+    Object.defineProperty(target, key, {value, writable: true, configurable: true});
+  }
+}
+
 export function Variable(type, module, observer, options) {
   if (!observer) observer = no_observer;
+  const params = initParams(options);
   Object.defineProperties(this, {
     _observer: {value: observer, writable: true},
     // 当前变量的定义函数；默认是“未定义占位函数”。
@@ -43,12 +64,15 @@ export function Variable(type, module, observer, options) {
     _rejector: {value: variable_rejector(this)},
     // 阴影作用域（可选）：优先于模块解析。
     _shadow: {value: initShadow(module, options)},
+    // options.params 的快照；同时会被平铺到实例字段。
+    _params: {value: params, writable: true},
     _type: {value: type},
     // 最近一次成功计算出来的值。
     _value: {value: undefined, writable: true},
     // 版本号用于“防陈旧写入”：旧轮次完成后若版本不匹配则丢弃结果。
     _version: {value: 0, writable: true}
   });
+  applyParamsToInstance(this, params);
 }
 
 Object.defineProperties(Variable.prototype, {

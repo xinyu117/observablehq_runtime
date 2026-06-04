@@ -107,12 +107,15 @@ export class VariableStorage {
   list(collection = DEFAULT_COLLECTION) {
     const collectionName = this.normalizeCollectionName(collection);
     return this.queryRows(
-      "SELECT name, params_json, expression FROM variables WHERE collection_name = ? ORDER BY name ASC",
+      "SELECT name, params_json, options_params_json, expression FROM variables WHERE collection_name = ? ORDER BY name ASC",
       [collectionName]
     )
       .map((row) => ({
         name: row.name,
         params: JSON.parse(row.params_json),
+        options: {
+          params: row.options_params_json ? JSON.parse(row.options_params_json) : {}
+        },
         expression: row.expression
       }));
   }
@@ -262,17 +265,22 @@ export class VariableStorage {
   }
 
   insertRow(collectionName, variable) {
+    const optionParams = variable?.options?.params && typeof variable.options.params === "object"
+      ? variable.options.params
+      : {};
     this.db.run(`
-      INSERT INTO variables (collection_name, name, params_json, expression, updated_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO variables (collection_name, name, params_json, options_params_json, expression, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(collection_name, name) DO UPDATE SET
         params_json = excluded.params_json,
+        options_params_json = excluded.options_params_json,
         expression = excluded.expression,
         updated_at = excluded.updated_at
     `, [
       collectionName,
       variable.name,
       JSON.stringify(variable.params),
+      JSON.stringify(optionParams),
       variable.expression,
       new Date().toISOString()
     ]);
@@ -310,17 +318,24 @@ export class VariableStorage {
     const columns = this.queryRows("PRAGMA table_info(variables)").map((row) => row.name);
     const hasCollectionColumn = columns.includes("collection_name");
 
-    if (hasCollectionColumn) return;
-
-    this.db.run("ALTER TABLE variables RENAME TO variables_legacy");
-    this.createVariablesTable();
-    this.insertCollection(DEFAULT_COLLECTION);
-    this.db.run(`
-      INSERT INTO variables (collection_name, name, params_json, expression, updated_at)
-      SELECT ?, name, params_json, expression, updated_at
+    if (!hasCollectionColumn) {
+      this.db.run("ALTER TABLE variables RENAME TO variables_legacy");
+      this.createVariablesTable();
+      this.insertCollection(DEFAULT_COLLECTION);
+      this.db.run(`
+      INSERT INTO variables (collection_name, name, params_json, options_params_json, expression, updated_at)
+      SELECT ?, name, params_json, '{}', expression, updated_at
       FROM variables_legacy
     `, [DEFAULT_COLLECTION]);
-    this.db.run("DROP TABLE variables_legacy");
+      this.db.run("DROP TABLE variables_legacy");
+      return;
+    }
+
+    const hasOptionParamsColumn = columns.includes("options_params_json");
+    if (!hasOptionParamsColumn) {
+      this.db.run("ALTER TABLE variables ADD COLUMN options_params_json TEXT NOT NULL DEFAULT '{}' ");
+    }
+    return;
   }
 
   createVariablesTable() {
@@ -329,6 +344,7 @@ export class VariableStorage {
         collection_name TEXT NOT NULL,
         name TEXT NOT NULL,
         params_json TEXT NOT NULL,
+        options_params_json TEXT NOT NULL,
         expression TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (collection_name, name),
