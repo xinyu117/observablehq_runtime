@@ -14,7 +14,14 @@ const showValuesBtn = document.getElementById("show-values-btn");
 const tableBody = document.getElementById("variables-body");
 const valuesOutput = document.getElementById("values-output");
 const statusBadge = document.getElementById("front-only-status");
+const collectionSelect = document.getElementById("front-collection-select");
+const collectionNameInput = document.getElementById("front-collection-name");
+const createCollectionBtn = document.getElementById("front-create-collection-btn");
+const copyCollectionBtn = document.getElementById("front-copy-collection-btn");
+const deleteCollectionBtn = document.getElementById("front-delete-collection-btn");
 const emptyTemplate = document.getElementById("empty-row-template");
+
+const DEFAULT_FRONT_COLLECTION = "front_only";
 
 const keywordSet = new Set([
   "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete",
@@ -45,6 +52,42 @@ let runtime = null;
 let runtimeModule = null;
 let valueByName = new Map();
 const variableHandles = new Map();
+let selectedCollection = null;
+
+function getRouteCollection() {
+  const url = new URL(window.location.href);
+  const value = url.searchParams.get("collection");
+  const collection = typeof value === "string" ? value.trim() : "";
+  return collection || "";
+}
+
+function updateRouteCollection(name, {replace = false} = {}) {
+  const url = new URL(window.location.href);
+  if (name) {
+    url.searchParams.set("collection", name);
+  } else {
+    url.searchParams.delete("collection");
+  }
+
+  const method = replace ? "replaceState" : "pushState";
+  window.history[method]({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function setSelectedCollection(name) {
+  selectedCollection = String(name || "").trim() || DEFAULT_FRONT_COLLECTION;
+}
+
+function buildApiUrl(rawUrl) {
+  const url = new URL(rawUrl, window.location.origin);
+  const attachCollection = url.pathname === "/api/front-only/variables"
+    || url.pathname === "/api/front-only/save";
+
+  if (attachCollection && selectedCollection) {
+    url.searchParams.set("collection", selectedCollection);
+  }
+
+  return `${url.pathname}${url.search}${url.hash}`;
+}
 
 function cloneVariables(list) {
   return list.map((item) => ({
@@ -107,7 +150,8 @@ function stringifyParams(params) {
 
 function setDirty(nextDirty) {
   dirty = nextDirty;
-  statusBadge.textContent = dirty ? "状态: 未保存" : "状态: 已同步";
+  const modeText = dirty ? "未保存" : "已同步";
+  statusBadge.textContent = `集合: ${selectedCollection || "-"} | 状态: ${modeText}`;
 }
 
 function setFormMode(isEditing) {
@@ -239,7 +283,7 @@ function clearDetachedValues() {
 }
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, {
+  const response = await fetch(buildApiUrl(url), {
     headers: {"Content-Type": "application/json"},
     ...options
   });
@@ -553,6 +597,7 @@ function parseCsvToVariables(text) {
 
 async function loadSavedVariables() {
   const payload = await requestJson("/api/front-only/variables");
+  setSelectedCollection(payload.collection || selectedCollection || DEFAULT_FRONT_COLLECTION);
   variables = cloneVariables(payload.variables || []);
   variables.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -564,6 +609,55 @@ async function loadSavedVariables() {
   setDirty(false);
 }
 
+function renderCollections(collections) {
+  collectionSelect.innerHTML = "";
+  for (const collection of collections) {
+    const option = document.createElement("option");
+    option.value = collection.name;
+    option.textContent = `${collection.name} (${collection.variableCount || 0})`;
+    collectionSelect.appendChild(option);
+  }
+
+  if (selectedCollection) {
+    collectionSelect.value = selectedCollection;
+  }
+}
+
+async function loadCollections() {
+  const payload = await requestJson("/api/front-only/collections");
+  const collections = Array.isArray(payload.collections) ? payload.collections : [];
+  if (collections.length === 0) {
+    setSelectedCollection(DEFAULT_FRONT_COLLECTION);
+    renderCollections([{name: DEFAULT_FRONT_COLLECTION, variableCount: 0}]);
+    return;
+  }
+
+  const exists = collections.some((item) => item.name === selectedCollection);
+  if (!exists) {
+    setSelectedCollection(collections[0].name);
+  }
+  renderCollections(collections);
+}
+
+async function switchCollection(nextName, {replaceRoute = false} = {}) {
+  const target = String(nextName || "").trim();
+  if (!target || target === selectedCollection) return;
+
+  if (dirty) {
+    const ok = window.confirm("当前集合有未保存更改，切换后将丢失，是否继续？");
+    if (!ok) {
+      collectionSelect.value = selectedCollection || "";
+      return;
+    }
+  }
+
+  resetForm();
+  setSelectedCollection(target);
+  updateRouteCollection(target, {replace: replaceRoute});
+  await loadSavedVariables();
+  await loadCollections();
+}
+
 async function saveAllVariables() {
   saveBtn.disabled = true;
   try {
@@ -572,6 +666,7 @@ async function saveAllVariables() {
       body: JSON.stringify({variables: cloneVariables(variables)})
     });
     setDirty(false);
+    await loadCollections();
     window.alert("保存成功：已写入独立数据库与独立 JSON 文件");
   } catch (error) {
     window.alert(`保存失败: ${error.message}`);
@@ -674,6 +769,90 @@ showValuesBtn.addEventListener("click", () => {
   renderValuesBoard();
 });
 
+collectionSelect.addEventListener("change", async () => {
+  await switchCollection(collectionSelect.value);
+});
+
+createCollectionBtn.addEventListener("click", async () => {
+  const name = collectionNameInput.value.trim();
+  if (!name) {
+    window.alert("请输入集合名");
+    return;
+  }
+
+  try {
+    await requestJson("/api/front-only/collections", {
+      method: "POST",
+      body: JSON.stringify({name})
+    });
+    collectionNameInput.value = "";
+    await loadCollections();
+    await switchCollection(name);
+  } catch (error) {
+    window.alert(`创建集合失败: ${error.message}`);
+  }
+});
+
+copyCollectionBtn.addEventListener("click", async () => {
+  if (!selectedCollection) return;
+
+  if (dirty) {
+    const confirmDirty = window.confirm("当前集合有未保存更改，复制只会包含已保存内容，是否继续？");
+    if (!confirmDirty) return;
+  }
+
+  const typedName = collectionNameInput.value.trim();
+  const targetName = typedName || window.prompt("请输入复制后的新集合名", `${selectedCollection}-副本`)?.trim();
+  if (!targetName) return;
+
+  try {
+    await requestJson("/api/front-only/collections/copy", {
+      method: "POST",
+      body: JSON.stringify({
+        from: selectedCollection,
+        to: targetName
+      })
+    });
+    collectionNameInput.value = "";
+    await loadCollections();
+    await switchCollection(targetName);
+  } catch (error) {
+    window.alert(`复制集合失败: ${error.message}`);
+  }
+});
+
+deleteCollectionBtn.addEventListener("click", async () => {
+  if (!selectedCollection) return;
+
+  if (dirty) {
+    const confirmDirty = window.confirm("当前集合有未保存更改，删除后无法恢复，是否继续？");
+    if (!confirmDirty) return;
+  }
+
+  const ok = window.confirm(`确认删除集合 ${selectedCollection} 吗？集合中的变量会被全部删除。`);
+  if (!ok) return;
+
+  try {
+    await requestJson(`/api/front-only/collections/${encodeURIComponent(selectedCollection)}`, {
+      method: "DELETE"
+    });
+    const routeCollection = getRouteCollection();
+    if (routeCollection === selectedCollection) {
+      updateRouteCollection("", {replace: true});
+    }
+    await loadCollections();
+    await loadSavedVariables();
+  } catch (error) {
+    window.alert(`删除集合失败: ${error.message}`);
+  }
+});
+
+window.addEventListener("popstate", async () => {
+  const routeCollection = getRouteCollection();
+  const target = routeCollection || selectedCollection || DEFAULT_FRONT_COLLECTION;
+  await switchCollection(target, {replaceRoute: true});
+});
+
 window.addEventListener("beforeunload", (event) => {
   if (!dirty) return;
   event.preventDefault();
@@ -681,5 +860,11 @@ window.addEventListener("beforeunload", (event) => {
 });
 
 (async function boot() {
+  const routeCollection = getRouteCollection();
+  setSelectedCollection(routeCollection || DEFAULT_FRONT_COLLECTION);
+  await loadCollections();
+  if (routeCollection && routeCollection !== selectedCollection) {
+    updateRouteCollection(selectedCollection, {replace: true});
+  }
   await loadSavedVariables();
 })();

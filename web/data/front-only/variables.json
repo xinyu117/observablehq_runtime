@@ -2,6 +2,10 @@
   "version": 2,
   "collections": [
     {
+      "name": "Test1",
+      "variables": []
+    },
+    {
       "name": "front_only",
       "variables": [
         {

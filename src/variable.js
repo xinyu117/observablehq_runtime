@@ -275,6 +275,8 @@ function variable_import(remote, name, module) {
 }
 
 function variable_delete() {
+  // suchao added: 2024-06-17
+  this._observer = {pending: noop, fulfilled: noop, rejected: noop};
   // delete 等价于定义为 noop 且无输入，表示“撤销定义”。
   return variable_defineImpl.call(this, null, [], noop);
 }

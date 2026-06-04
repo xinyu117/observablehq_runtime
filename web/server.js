@@ -44,6 +44,12 @@ function getCollectionName(url) {
   return collection || DEFAULT_COLLECTION;
 }
 
+function getFrontOnlyCollectionName(url) {
+  const value = url.searchParams.get("collection");
+  const collection = typeof value === "string" ? value.trim() : "";
+  return collection || FRONT_ONLY_COLLECTION;
+}
+
 function normalizeParams(value) {
   if (!Array.isArray(value)) return [];
   const result = [];
@@ -242,17 +248,87 @@ async function serveRuntimeSource(req, res, pathname) {
 }
 
 async function handleApi(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/api/front-only/collections") {
+    sendJson(res, 200, {collections: frontOnlyStorage.listCollections()});
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/front-only/collections") {
+    const body = await parseJsonBody(req);
+    const name = typeof body?.name === "string" ? body.name : "";
+    try {
+      const created = await frontOnlyStorage.createCollection(name);
+      sendJson(res, 200, {ok: true, name: created});
+    } catch (error) {
+      if (error.message === "变量集合已存在") {
+        sendJson(res, 409, {error: error.message});
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/front-only/collections/copy") {
+    const body = await parseJsonBody(req);
+    const from = typeof body?.from === "string" ? body.from.trim() : "";
+    const to = typeof body?.to === "string" ? body.to.trim() : "";
+
+    if (!from || !to) {
+      sendJson(res, 400, {error: "缺少 from 或 to"});
+      return;
+    }
+
+    const collections = frontOnlyStorage.listCollections();
+    if (!collections.some((item) => item.name === from)) {
+      sendJson(res, 404, {error: "源集合不存在"});
+      return;
+    }
+
+    try {
+      await frontOnlyStorage.createCollection(to);
+    } catch (error) {
+      if (error.message === "变量集合已存在") {
+        sendJson(res, 409, {error: error.message});
+        return;
+      }
+      throw error;
+    }
+
+    const copiedVariables = frontOnlyStorage.list(from);
+    await frontOnlyStorage.importVariables(copiedVariables, "replace", to);
+    sendJson(res, 200, {ok: true, from, to, count: copiedVariables.length});
+    return;
+  }
+
+  if (req.method === "DELETE" && url.pathname.startsWith("/api/front-only/collections/")) {
+    const name = decodeURIComponent(url.pathname.slice("/api/front-only/collections/".length));
+    try {
+      await frontOnlyStorage.removeCollection(name);
+      sendJson(res, 200, {ok: true});
+    } catch (error) {
+      if (["变量集合不存在", "至少保留一个变量集合"].includes(error.message)) {
+        sendJson(res, 409, {error: error.message});
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/front-only/variables") {
-    const variables = frontOnlyStorage.list(FRONT_ONLY_COLLECTION);
-    sendJson(res, 200, {variables});
+    const collection = getFrontOnlyCollectionName(url);
+    const variables = frontOnlyStorage.list(collection);
+    sendJson(res, 200, {collection, variables});
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/front-only/save") {
+    const collection = getFrontOnlyCollectionName(url);
     const body = await parseJsonBody(req);
     const variables = normalizeVariableList(body?.variables);
-    await frontOnlyStorage.importVariables(variables, "replace", FRONT_ONLY_COLLECTION);
-    sendJson(res, 200, {ok: true, count: variables.length});
+    await frontOnlyStorage.importVariables(variables, "replace", collection);
+    sendJson(res, 200, {ok: true, collection, count: variables.length});
     return;
   }
 

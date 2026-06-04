@@ -14,6 +14,22 @@
           <span id="front-only-status" class="mode-badge">状态: 已同步</span>
         </div>
 
+        <div class="collection-toolbar">
+          <label>
+            当前集合
+            <select id="front-collection-select"></select>
+          </label>
+          <label>
+            新建集合
+            <input id="front-collection-name" placeholder="例如：规则A" />
+          </label>
+          <div class="form-actions">
+            <button id="front-create-collection-btn" type="button" class="secondary">创建集合</button>
+            <button id="front-copy-collection-btn" type="button" class="secondary">复制当前集合</button>
+            <button id="front-delete-collection-btn" type="button" class="ghost">删除当前集合</button>
+          </div>
+        </div>
+
         <h1>前端模式变量管理</h1>
         <p class="subtitle">本页只在前端模式编辑变量，点击“+”仅追加定义；点击“保存”才会写入独立数据库与独立 JSON 文件。</p>
 
