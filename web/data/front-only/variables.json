@@ -3,7 +3,36 @@
   "collections": [
     {
       "name": "Test1",
-      "variables": []
+      "variables": [
+        {
+          "name": "filter",
+          "params": [
+            "list"
+          ],
+          "options": {
+            "params": {}
+          },
+          "expression": "list[0].k2"
+        },
+        {
+          "name": "fun",
+          "params": [
+            "filter"
+          ],
+          "options": {
+            "params": {}
+          },
+          "expression": "(filter) => filter"
+        },
+        {
+          "name": "list",
+          "params": [],
+          "options": {
+            "params": {}
+          },
+          "expression": "[{k1:'a',k2:'b'},{k1:'a1',k2:'b1'}]"
+        }
+      ]
     },
     {
       "name": "front_only",

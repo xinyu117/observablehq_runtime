@@ -141,19 +141,18 @@ function createDefinition(variable) {
   const expression = variable.expression;
   const functionExpression = isFunctionExpression(expression);
 
+  if (functionExpression) {
+    return {
+      // Function expressions are executed as definition functions.
+      dependencies: (params.length > 0 ? params : extractFunctionDependencies(expression)).filter((d) => d !== variable.name),
+      definition: new Function(`return (${expression});`)()
+    };
+  }
+
   if (params.length > 0) {
     return {
       dependencies: params.filter((d) => d !== variable.name),
       definition: new Function(...params, `return (${expression});`)
-    };
-  }
-
-  if (functionExpression) {
-    return {
-      // Function expressions are treated as function values; dependencies should
-      // come from explicit params, not from function argument names.
-      dependencies: [],
-      definition: new Function(`return (${expression});`)
     };
   }
 

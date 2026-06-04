@@ -362,20 +362,19 @@ function createDefinition(variable) {
   const expression = variable.expression;
   const functionExpression = isFunctionExpression(expression);
 
+  if (functionExpression) {
+    return {
+      // 函数表达式会被直接作为 definition 执行，而不是作为函数值返回。
+      dependencies: (params.length > 0 ? params : extractFunctionDependencies(expression)).filter((d) => d !== variable.name),
+      definition: new Function(`return (${expression});`)()
+    };
+  }
+
   if (params.length > 0) {
     // 显式 params 视为该变量的依赖，表达式作为定义函数体执行。
     return {
       dependencies: params.filter((d) => d !== variable.name),
       definition: new Function(...params, `return (${expression});`)
-    };
-  }
-
-  if (functionExpression) {
-    // 当表达式本身是函数时，变量值应为“函数对象”本身，而不是立即调用结果。
-    return {
-      // 依赖只来自显式 params，不从函数形参名推导，避免把 ms 误判成外部变量。
-      dependencies: [],
-      definition: new Function(`return (${expression});`)
     };
   }
 

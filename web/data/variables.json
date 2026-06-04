@@ -201,7 +201,7 @@
           "options": {
             "params": {}
           },
-          "expression": "(ms) => new Promise((resolve) => setTimeout(resolve, ms))"
+          "expression": "() => ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))"
         },
         {
           "name": "slowA",

@@ -377,22 +377,54 @@ function isFunctionExpression(expression) {
     || /^(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>/.test(source);
 }
 
+function extractFunctionDependencies(expression) {
+  const source = expression.trim();
+  let paramsSource = "";
+  let match;
+
+  match = source.match(/^(?:async\s+)?function(?:\s*\*)?(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?\s*\(([^)]*)\)/);
+  if (match) {
+    paramsSource = match[1] || "";
+  } else {
+    match = source.match(/^(?:async\s*)?\(([^)]*)\)\s*=>/);
+    if (match) {
+      paramsSource = match[1] || "";
+    } else {
+      match = source.match(/^(?:async\s*)?([A-Za-z_$][A-Za-z0-9_$]*)\s*=>/);
+      if (match) paramsSource = match[1] || "";
+    }
+  }
+
+  if (!paramsSource.trim()) return [];
+
+  return paramsSource
+    .split(",")
+    .map((param) => param.trim())
+    .map((param) => (param.startsWith("...") ? param.slice(3).trim() : param))
+    .map((param) => {
+      const equalAt = param.indexOf("=");
+      return equalAt >= 0 ? param.slice(0, equalAt).trim() : param;
+    })
+    .filter((param) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(param));
+}
+
 function createDefinition(variable) {
   const params = Array.isArray(variable.params) ? variable.params : [];
   const expression = variable.expression;
   const functionExpression = isFunctionExpression(expression);
 
+  if (functionExpression) {
+    return {
+      // 函数表达式会被直接作为 definition 执行，而不是作为函数值返回。
+      dependencies: (params.length > 0 ? params : extractFunctionDependencies(expression)).filter((d) => d !== variable.name),
+      definition: new Function(`return (${expression});`)()
+    };
+  }
+
   if (params.length > 0) {
     return {
       dependencies: params.filter((d) => d !== variable.name),
       definition: new Function(...params, `return (${expression});`)
-    };
-  }
-
-  if (functionExpression) {
-    return {
-      dependencies: [],
-      definition: new Function(`return (${expression});`)
     };
   }
 
