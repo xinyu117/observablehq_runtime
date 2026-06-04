@@ -586,7 +586,7 @@ function parseCsvToVariables(text) {
       throw new Error(`第 ${i + 1} 行变量名不合法: ${name}`);
     }
 
-    if (!param || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(param)) {
+    if (param && !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(param)) {
       throw new Error(`第 ${i + 1} 行参数不合法: ${param}`);
     }
 
@@ -598,7 +598,7 @@ function parseCsvToVariables(text) {
     if (!current) {
       grouped.set(name, {
         name,
-        params: [param],
+        params: param ? [param] : [],
         options: {params: optionParams},
         expression
       });
@@ -609,7 +609,7 @@ function parseCsvToVariables(text) {
       throw new Error(`变量 ${name} 的 expression 不一致，无法合并`);
     }
 
-    if (!current.params.includes(param)) current.params.push(param);
+    if (param && !current.params.includes(param)) current.params.push(param);
     for (const [key, value] of Object.entries(optionParams)) {
       const existing = current.options.params[key] ?? "";
       if (existing && value && existing !== value) {

@@ -21,6 +21,8 @@ const submitBtn = document.getElementById("submit-btn");
 const cancelBtn = document.getElementById("cancel-btn");
 const showValuesBtn = document.getElementById("show-values-btn");
 const showValuesAsyncBtn = document.getElementById("show-values-async-btn");
+const csvImportBtn = document.getElementById("csv-import-btn");
+const csvFile = document.getElementById("csv-file");
 const saveBtn = document.getElementById("save-btn");
 const exportBtn = document.getElementById("export-btn");
 const importBtn = document.getElementById("import-btn");
@@ -559,6 +561,89 @@ function normalizeImportedVariable(raw) {
     },
     expression: String(raw?.expression || "").trim()
   };
+}
+
+function parseCsvToVariables(text) {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) throw new Error("CSV 文件为空");
+
+  const readCells = (raw) => {
+    const cells = raw.split(",").map((item) => item.trim());
+    while (cells.length > 0 && cells[cells.length - 1] === "") {
+      cells.pop();
+    }
+    return cells;
+  };
+
+  const firstCells = readCells(lines[0]).map((item) => item.toLowerCase());
+  const hasHeader = firstCells[0] === "name"
+    && (firstCells[1] === "input" || firstCells[1] === "param")
+    && (firstCells[2] === "function" || firstCells[2] === "expression");
+  const optionKeys = hasHeader ? firstCells.slice(3).filter(Boolean) : [];
+  const startAt = hasHeader ? 1 : 0;
+  const grouped = new Map();
+
+  for (let i = startAt; i < lines.length; i += 1) {
+    const raw = lines[i];
+    const cells = readCells(raw);
+
+    if (cells.length < 3) {
+      throw new Error(`第 ${i + 1} 行格式错误，应至少包含 name,param,expression`);
+    }
+
+    const name = cells[0];
+    const param = cells[1];
+    const expression = hasHeader ? cells[2].trim() : cells.slice(2).join(",").trim();
+    const optionParams = {};
+
+    if (hasHeader) {
+      for (let j = 0; j < optionKeys.length; j += 1) {
+        const key = optionKeys[j];
+        if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+          throw new Error(`CSV 头部 params 键不合法: ${key}`);
+        }
+        optionParams[key] = String(cells[3 + j] ?? "").trim();
+      }
+    }
+
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+      throw new Error(`第 ${i + 1} 行变量名不合法: ${name}`);
+    }
+
+    if (param && !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(param)) {
+      throw new Error(`第 ${i + 1} 行参数不合法: ${param}`);
+    }
+
+    if (!expression) {
+      throw new Error(`第 ${i + 1} 行 expression 为空`);
+    }
+
+    const current = grouped.get(name);
+    if (!current) {
+      grouped.set(name, {
+        name,
+        params: param ? [param] : [],
+        options: {params: optionParams},
+        expression
+      });
+      continue;
+    }
+
+    if (current.expression !== expression) {
+      throw new Error(`变量 ${name} 的 expression 不一致，无法合并`);
+    }
+
+    if (param && !current.params.includes(param)) current.params.push(param);
+    for (const [key, value] of Object.entries(optionParams)) {
+      const existing = current.options.params[key] ?? "";
+      if (existing && value && existing !== value) {
+        throw new Error(`变量 ${name} 的 params.${key} 不一致，无法合并`);
+      }
+      if (!existing) current.options.params[key] = value;
+    }
+  }
+
+  return [...grouped.values()];
 }
 
 function validateImportedVariables(variables) {
@@ -1279,6 +1364,51 @@ exportBtn.addEventListener("click", async () => {
 importBtn.addEventListener("click", () => {
   importFile.value = "";
   importFile.click();
+});
+
+csvImportBtn.addEventListener("click", () => {
+  csvFile.value = "";
+  csvFile.click();
+});
+
+csvFile.addEventListener("change", async () => {
+  const file = csvFile.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const importedVariables = parseCsvToVariables(text).map(normalizeImportedVariable);
+    validateImportedVariables(importedVariables);
+
+    const modeName = "merge";
+
+    if (mode === "backend") {
+      const previewPayload = await requestJson("/api/import/preview", {
+        method: "POST",
+        body: JSON.stringify({
+          mode: modeName,
+          variables: importedVariables
+        })
+      });
+
+      pendingImport = {
+        mode: modeName,
+        variables: importedVariables
+      };
+      renderPreviewDialog(previewPayload.preview || {});
+      previewDialog.showModal();
+      return;
+    }
+
+    pendingImport = {
+      mode: modeName,
+      variables: importedVariables
+    };
+    renderPreviewDialog(buildImportPreview(localVariables, importedVariables, modeName));
+    previewDialog.showModal();
+  } catch (error) {
+    window.alert(`CSV 导入失败: ${error.message}`);
+  }
 });
 
 importFile.addEventListener("change", async () => {
