@@ -71,7 +71,7 @@ export function Variable(type, module, observer, options) {
     // 版本号用于“防陈旧写入”：旧轮次完成后若版本不匹配则丢弃结果。
     _version: {value: 0, writable: true}
   });
-  applyParamsToInstance(this, params);
+ // applyParamsToInstance(this, params);
 }
 
 Object.defineProperties(Variable.prototype, {
@@ -135,6 +135,8 @@ function variable_duplicate(name) {
 }
 
 function variable_define(name, inputs, definition) {
+
+  applyParamsToInstance(this, this._params);
   // 兼容三种 API 形态：
   // define(definition)
   // define(inputs, definition)

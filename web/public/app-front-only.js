@@ -51,6 +51,7 @@ let dirty = false;
 let runtime = null;
 let runtimeModule = null;
 let valueByName = new Map();
+const valueLineByName = new Map();
 const variableHandles = new Map();
 let selectedCollection = null;
 
@@ -265,14 +266,32 @@ function renderTable() {
 }
 
 function renderValuesBoard() {
+  valueLineByName.clear();
+
   if (variables.length === 0) {
+    valuesOutput.innerHTML = "";
     valuesOutput.textContent = "当前没有已定义变量。";
     return;
   }
 
   const ordered = [...variables].map((item) => item.name).sort((a, b) => a.localeCompare(b));
-  const lines = ordered.map((name) => `${name} = ${valueByName.get(name) ?? "<pending>"}`);
-  valuesOutput.textContent = lines.join("\n");
+  valuesOutput.innerHTML = "";
+  for (let i = 0; i < ordered.length; i += 1) {
+    const name = ordered[i];
+    const line = document.createElement("span");
+    line.textContent = `${name} = ${valueByName.get(name) ?? "<pending>"}`;
+    valueLineByName.set(name, line);
+    valuesOutput.appendChild(line);
+    if (i < ordered.length - 1) {
+      valuesOutput.appendChild(document.createTextNode("\n"));
+    }
+  }
+}
+
+function updateValueLine(name) {
+  const line = valueLineByName.get(name);
+  if (!line) return;
+  line.textContent = `${name} = ${valueByName.get(name) ?? "<pending>"}`;
 }
 
 function clearDetachedValues() {
@@ -472,15 +491,15 @@ function createObserver(name) {
   return {
     pending() {
       valueByName.set(name, "<pending>");
-      renderValuesBoard();
+      updateValueLine(name);
     },
     fulfilled(value) {
       valueByName.set(name, formatInspectable(value));
-      renderValuesBoard();
+      updateValueLine(name);
     },
     rejected(error) {
       valueByName.set(name, `<Error: ${error?.message || String(error)}>`);
-      renderValuesBoard();
+      updateValueLine(name);
     }
   };
 }
@@ -639,6 +658,7 @@ async function loadSavedVariables() {
   renderTable();
   renderValuesBoard();
   setDirty(false);
+  runtime_variablesByLevel();
 }
 
 function renderCollections(collections) {
@@ -729,7 +749,7 @@ function runtime_variablesByLevel() {
   const levels = [];
   for (const variable of runtime._variables) {
     const level = variable.level;
-    if (!Number.isFinite(level)) continue;
+   // if (!Number.isFinite(level)) continue;
     if (!levels[level]) levels[level] = [];
     levels[level].push(variable);
   }
