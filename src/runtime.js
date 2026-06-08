@@ -23,6 +23,8 @@ export function Runtime(builtins, global = window_global) {
     _init: {value: null, writable: true},
     _modules: {value: new Map},
     _variables: {value: new Set},
+    _plugins: {value: new Set},
+    _computeRound: {value: 0, writable: true},
     _disposed: {value: false, writable: true},
     _builtin: {value: builtin},
     _global: {value: global}
@@ -37,9 +39,22 @@ Object.defineProperties(Runtime.prototype, {
   _compute: {value: runtime_compute, writable: true, configurable: true},
   _computeSoon: {value: runtime_computeSoon, writable: true, configurable: true},
   _computeNow: {value: runtime_computeNow, writable: true, configurable: true},
+  use: {value: runtime_use, writable: true, configurable: true},
+  unuse: {value: runtime_unuse, writable: true, configurable: true},
   dispose: {value: runtime_dispose, writable: true, configurable: true},
   module: {value: runtime_module, writable: true, configurable: true}
 });
+
+function runtime_use(plugin) {
+  if (!plugin) throw new Error("plugin is required");
+  this._plugins.add(plugin);
+  return this;
+}
+
+function runtime_unuse(plugin) {
+  this._plugins.delete(plugin);
+  return this;
+}
 
 function runtime_dispose() {
   this._computing = Promise.resolve();
@@ -191,9 +206,32 @@ async function runtime_computeNow() {
     });
   } while (variables.size);
 
+  this._computeRound += 1;
+  await runtime_runPlugins(this, this._computeRound);
+
   function postqueue(variable) {
     if (--variable._indegree === 0) {
       queue.push(variable);
+    }
+  }
+}
+
+async function runtime_runPlugins(runtime, round) {
+  if (!runtime._plugins.size) return;
+
+  for (const plugin of runtime._plugins) {
+    try {
+      if (typeof plugin === "function") {
+        await plugin(runtime, {round});
+      } else if (plugin && typeof plugin.afterCompute === "function") {
+        await plugin.afterCompute(runtime, {round});
+      }
+    } catch (error) {
+      if (typeof plugin?.onError === "function") {
+        plugin.onError(error, runtime, {round});
+      } else if (typeof console !== "undefined" && typeof console.error === "function") {
+        console.error(error);
+      }
     }
   }
 }

@@ -725,6 +725,17 @@ function deleteVariable(name) {
   renderValuesBoard();
 }
 
+function runtime_variablesByLevel() {
+  const levels = [];
+  for (const variable of runtime._variables) {
+    const level = variable.level;
+    if (!Number.isFinite(level)) continue;
+    if (!levels[level]) levels[level] = [];
+    levels[level].push(variable);
+  }
+  return levels;
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault(); // 阻止默认提交行为,不会刷新页面
 

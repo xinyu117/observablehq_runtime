@@ -61,3 +61,64 @@ it("runtime recomputes levels after redefine", async () => {
   assert.strictEqual(B._inputLevel, 0);
   assert.strictEqual(C._inputLevel, 1);
 });
+
+it("runtime recomputes levels after redefine by plugin", async () => {
+  const runtime = new Runtime();
+  const module = runtime.module();
+
+  runtime.use({
+    afterCompute(_runtime, context) {
+      setInputLevelOfVariable(_runtime._variables);
+    }
+  });
+
+  const A = module.define("A", [], () => 1);
+  const B = module.define("B", ["A"], A => A + 1);
+  const C = module.define("C", ["B"], B => B + 1);
+
+  await runtime._compute();
+
+ // setInputLevelOfVariable(runtime._variables);
+  assert.strictEqual(A._inputLevel, 0);
+  assert.strictEqual(B._inputLevel, 1);
+  assert.strictEqual(C._inputLevel, 2);
+
+  B.define("B", [], () => 10);
+  await runtime._compute();
+
+  //setInputLevelOfVariable(runtime._variables);
+  assert.strictEqual(A._inputLevel, 0);
+  assert.strictEqual(B._inputLevel, 0);
+  assert.strictEqual(C._inputLevel, 1);
+});
+
+it("runtime recomputes levels after redefine by plugin 2", async () => {
+  const runtime = new Runtime();
+  const module = runtime.module();
+
+  const plugin = (_runtime) => {
+    setInputLevelOfVariable(_runtime._variables);
+  };
+
+  runtime.use(plugin);
+
+  const A = module.define("A", [], () => 1);
+  const B = module.define("B", ["A"], A => A + 1);
+  const C = module.define("C", ["B"], B => B + 1);
+
+  await runtime._compute();
+
+  //setInputLevelOfVariable(runtime._variables);
+  assert.strictEqual(A._inputLevel, 0);
+  assert.strictEqual(B._inputLevel, 1);
+  assert.strictEqual(C._inputLevel, 2);
+
+  B.define("B", [], () => 10);
+  await runtime._compute();
+
+  //setInputLevelOfVariable(runtime._variables);
+  assert.strictEqual(A._inputLevel, 0);
+  assert.strictEqual(B._inputLevel, 0);
+  assert.strictEqual(C._inputLevel, 1);
+});
+
