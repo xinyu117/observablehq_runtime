@@ -15,11 +15,11 @@ it("runtime computes variable levels from dependencies", async () => {
 
   await runtime._compute();
 
-  assert.strictEqual(A._level, 0);
-  assert.strictEqual(B._level, 1);
-  assert.strictEqual(C._level, 2);
-  assert.strictEqual(D._level, 3);
-  assert.strictEqual(E._level, 4);
+  assert.strictEqual(A._inputLevel, 0);
+  assert.strictEqual(B._inputLevel, 1);
+  assert.strictEqual(C._inputLevel, 2);
+  assert.strictEqual(D._inputLevel, 3);
+  assert.strictEqual(E._inputLevel, 4);
 });
 
 it("runtime recomputes levels after redefine", async () => {
@@ -32,16 +32,16 @@ it("runtime recomputes levels after redefine", async () => {
 
   await runtime._compute();
 
-  assert.strictEqual(A._level, 0);
-  assert.strictEqual(B._level, 1);
-  assert.strictEqual(C._level, 2);
+  assert.strictEqual(A._inputLevel, 0);
+  assert.strictEqual(B._inputLevel, 1);
+  assert.strictEqual(C._inputLevel, 2);
 
   B.define("B", [], () => 10);
   await runtime._compute();
 
-  assert.strictEqual(A._level, 0);
-  assert.strictEqual(B._level, 0);
-  assert.strictEqual(C._level, 1);
+  assert.strictEqual(A._inputLevel, 0);
+  assert.strictEqual(B._inputLevel, 0);
+  assert.strictEqual(C._inputLevel, 1);
 });
 
 it("runtime.variablesByLevel groups variables into a 2D array", async () => {
