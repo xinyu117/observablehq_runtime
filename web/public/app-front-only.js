@@ -1,4 +1,5 @@
-﻿import {Runtime} from "/runtime-src/index.js";
+﻿import {Runtime, constructTangleLayout} from "/runtime-src/index.js";
+import {SVG} from "./svg.js";
 
 const form = document.getElementById("variable-form");
 const nameInput = document.getElementById("name");
@@ -166,14 +167,25 @@ function resetForm() {
   setFormMode(false);
 }
 
+
+
 function ensureRuntime() {
   if (runtime && runtimeModule) return;
   runtime = new Runtime(builtinValues);
   runtimeModule = runtime.module();
+  
+  runtime.use({
+    afterCompute(_runtime, context) {
+       const levels = runtime_variablesByLevel();
+       //const result = constructTangleLayout(levels);
+       renderInteractiveChart(levels);
+    }
+  });
 }
 
 function resetRuntime() {
   if (runtime) runtime.dispose();
+  if (runtime) runtime.unuse();
   runtime = null;
   runtimeModule = null;
   variableHandles.clear();
@@ -658,7 +670,6 @@ async function loadSavedVariables() {
   renderTable();
   renderValuesBoard();
   setDirty(false);
-  runtime_variablesByLevel();
 }
 
 function renderCollections(collections) {
@@ -745,6 +756,39 @@ function deleteVariable(name) {
   renderValuesBoard();
 }
 
+  const originalD3 = globalThis.d3;
+  globalThis.d3 = {
+    min(values, accessor = d => d) {
+      let found = false;
+      let minValue;
+      for (const value of values ?? []) {
+        const mapped = accessor(value);
+        if (mapped == null || Number.isNaN(mapped)) continue;
+        if (!found || mapped < minValue) {
+          minValue = mapped;
+          found = true;
+        }
+      }
+      return found ? minValue : undefined;
+    },
+    max(values, accessor = d => d) {
+      let found = false;
+      let maxValue;
+      for (const value of values ?? []) {
+        const mapped = accessor(value);
+        if (mapped == null || Number.isNaN(mapped)) continue;
+        if (!found || mapped > maxValue) {
+          maxValue = mapped;
+          found = true;
+        }
+      }
+      return found ? maxValue : undefined;
+    },
+    descending(a, b) {
+      return b - a;
+    }
+  };
+
 function runtime_variablesByLevel() {
   const levels = [];
   for (const variable of runtime._variables) {
@@ -753,6 +797,11 @@ function runtime_variablesByLevel() {
     if (!levels[level]) levels[level] = [];
     levels[level].push(variable);
   }
+    // constructTangleLayout 需要节点有 id 字段；这里直接复用变量名。
+  levels.forEach(level => level.forEach(variable => {
+    variable.id = variable._name;
+  }));
+
   return levels;
 }
 
@@ -921,6 +970,151 @@ window.addEventListener("beforeunload", (event) => {
   event.preventDefault();
   event.returnValue = "";
 });
+
+
+/**
+ * 使用 SVG.js 创建可交互的图表版本
+ * @param {Array} data - 图表数据
+ * @param {Object} options - 配置选项
+ * @returns {HTMLElement} SVG 元素
+ */
+function renderInteractiveChart(data, options = {}) {
+
+  const schemeDark2 = [
+  "#1b9e77",
+  "#d95f02",
+  "#7570b3",
+  "#e7298a",
+  "#66a61e",
+  "#e6ab02",
+  "#a6761d",
+  "#666666"
+];
+
+ function scaleOrdinal(range) {
+  const index = new Map();
+  let next = 0;
+
+  return function(value) {
+    if (!index.has(value)) {
+      index.set(value, next++);
+    }
+
+    return range[index.get(value) % range.length];
+  };
+}
+
+  //const color = d3.scaleOrdinal(d3.schemeDark2);
+  const color = scaleOrdinal(schemeDark2);
+
+  options.color ||= (d, i) => color(i);
+  const background_color = 'white';
+  const stroke_width = 5;
+
+  const tangleLayout = constructTangleLayout(data, options);
+
+     // 使用 SVG.js 创建 SVG 画布
+   const draw = SVG().addTo("#svgjs").size(tangleLayout.layout.width, tangleLayout.layout.height);
+  
+  // 设置背景色
+  draw.rect(tangleLayout.layout.width, tangleLayout.layout.height).fill(background_color);
+    // 添加样式
+    const style = draw.defs().element('style');
+    style.node.textContent = `
+      text {
+        font-family: sans-serif;
+        font-size: 10px;
+      }
+      .node {
+        stroke-linecap: round;
+      }
+      .link {
+        fill: none;
+      }
+    `;
+
+  // 绘制线束（bundles）- 添加交互功能
+  const bundleGroup = draw.group().addClass('bundles');
+  tangleLayout.bundles.forEach((b, i) => {
+    const pathData = b.links.map(l => 
+      `M${l.xt} ${l.yt}
+       L${l.xb - l.c1} ${l.yt}
+       A${l.c1} ${l.c1} 90 0 1 ${l.xb} ${l.yt + l.c1}
+       L${l.xb} ${l.ys - l.c2}
+       A${l.c2} ${l.c2} 90 0 0 ${l.xb + l.c2} ${l.ys}
+       L${l.xs} ${l.ys}`
+    ).join("");
+
+    const bundleGroup = draw.group().addClass('bundle');
+    
+    // 背景路径
+    const bgPath = bundleGroup.path(pathData)
+        .fill('none')
+        .stroke(background_color)
+        .attr('stroke-width', stroke_width);
+
+    // 前景路径
+    const fgPath = bundleGroup.path(pathData)
+        .fill('none')
+        .stroke(options.color(b, i))
+        .attr('stroke-width', 2);
+
+         // 添加交互效果
+     bundleGroup
+         .mouseover(function() {
+           fgPath.attr('stroke-width', 4);
+         })
+         .mouseout(function() {
+           fgPath.attr('stroke-width', 2);
+         })
+         .click(function(e) {
+           e.stopPropagation();
+           dialogManager.showPathDialog(b);
+         })
+         .attr('style', 'cursor: pointer');
+  });
+
+  // 绘制节点 - 添加交互功能
+  const nodeGroup = draw.group().addClass('nodes');
+  tangleLayout.nodes.forEach(n => {
+    const singleNodeGroup = nodeGroup.group().addClass('node');
+    
+    // 节点线条
+    const nodeLine = singleNodeGroup.group();
+    nodeLine.line(n.x, n.y - n.height / 2, n.x, n.y + n.height / 2)
+        .stroke('black')
+        .attr('stroke-width', 8);
+    nodeLine.line(n.x, n.y - n.height / 2, n.x, n.y + n.height / 2)
+        .stroke('white')
+        .attr('stroke-width', 4);
+
+    // 节点标签
+    const nodeText = singleNodeGroup.group();
+    nodeText.text(n.id)
+        .move(n.x + 4, n.y - n.height / 2 - 16)
+        .stroke(background_color)
+        .attr('stroke-width', 2);
+    nodeText.text(n.id)
+        .move(n.x + 4, n.y - n.height / 2 - 16)
+        .fill('black');
+
+         // 添加交互事件
+     singleNodeGroup
+         .click(function(e) {
+           e.stopPropagation();
+           dialogManager.showNodeDialog(n);
+         })
+         .mouseover(function() {
+           nodeText.attr('font-weight', 'bold');
+         })
+         .mouseout(function() {
+           nodeText.attr('font-weight', 'normal');
+         })
+         .attr('style', 'cursor: pointer');
+  });
+
+  return draw.node;
+}
 
 (async function boot() {
   const routeCollection = getRouteCollection();

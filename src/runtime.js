@@ -52,7 +52,11 @@ function runtime_use(plugin) {
 }
 
 function runtime_unuse(plugin) {
-  this._plugins.delete(plugin);
+  if (plugin == null) { // undefined 或 null
+    this._plugins.clear();
+  } else {
+    this._plugins.delete(plugin);
+  }
   return this;
 }
 
