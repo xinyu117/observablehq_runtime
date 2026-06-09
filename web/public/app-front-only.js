@@ -55,6 +55,11 @@ let valueByName = new Map();
 const valueLineByName = new Map();
 const variableHandles = new Map();
 let selectedCollection = null;
+const chartState = {
+  draw: null,
+  levelSignature: "",
+  nodeValueTextByName: new Map()
+};
 
 function getRouteCollection() {
   const url = new URL(window.location.href);
@@ -189,6 +194,7 @@ function resetRuntime() {
   runtime = null;
   runtimeModule = null;
   variableHandles.clear();
+  chartState.levelSignature = "";
 }
 
 function validateVariable(variable, excludedName = "") {
@@ -304,6 +310,19 @@ function updateValueLine(name) {
   const line = valueLineByName.get(name);
   if (!line) return;
   line.textContent = `${name} = ${valueByName.get(name) ?? "<pending>"}`;
+}
+
+function formatChartNodeValue(name) {
+  const value = valueByName.get(name) ?? "<pending>";
+  const text = String(value);
+  if (text.length <= 14) return text;
+  return `${text.slice(0, 11)}...`;
+}
+
+function updateChartNodeValue(name) {
+  const nodeText = chartState.nodeValueTextByName.get(name);
+  if (!nodeText) return;
+  nodeText.text(formatChartNodeValue(name));
 }
 
 function clearDetachedValues() {
@@ -504,14 +523,17 @@ function createObserver(name) {
     pending() {
       valueByName.set(name, "<pending>");
       updateValueLine(name);
+      updateChartNodeValue(name);
     },
     fulfilled(value) {
       valueByName.set(name, formatInspectable(value));
       updateValueLine(name);
+      updateChartNodeValue(name);
     },
     rejected(error) {
       valueByName.set(name, `<Error: ${error?.message || String(error)}>`);
       updateValueLine(name);
+      updateChartNodeValue(name);
     }
   };
 }
@@ -805,6 +827,18 @@ function runtime_variablesByLevel() {
   return levels;
 }
 
+function createLevelsSignature(levels) {
+  return levels
+    .map((level, index) => {
+      const ids = (level || [])
+        .map((variable) => variable?._name || variable?.id || "")
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+      return `${index}:${ids.join(",")}`;
+    })
+    .join("|");
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault(); // 阻止默认提交行为,不会刷新页面
 
@@ -1010,11 +1044,35 @@ function renderInteractiveChart(data, options = {}) {
   options.color ||= (d, i) => color(i);
   const background_color = 'white';
   const stroke_width = 5;
+  const node_width = 30;
+  const node_height = 40;
+  const node_radius = 6;
 
-  const tangleLayout = constructTangleLayout(data, options);
+  const nextSignature = createLevelsSignature(data);
+  if (chartState.draw && chartState.levelSignature === nextSignature) {
+    return chartState.draw.node;
+  }
+
+  const layoutOptions = {
+    ...options,
+    node_width,
+    node_height,
+    min_family_height: Math.max(node_height, 22)
+  };
+  const tangleLayout = constructTangleLayout(data, layoutOptions);
+  const layoutNodeWidth = tangleLayout.layout?.node_width || node_width;
+  const layoutNodeHeight = tangleLayout.layout?.node_height || node_height;
+
+  if (chartState.draw) {
+    chartState.draw.remove();
+    chartState.draw = null;
+  }
+  chartState.nodeValueTextByName.clear();
+  chartState.levelSignature = nextSignature;
 
      // 使用 SVG.js 创建 SVG 画布
    const draw = SVG().addTo("#svgjs").size(tangleLayout.layout.width, tangleLayout.layout.height);
+  chartState.draw = draw;
   
   // 设置背景色
   draw.rect(tangleLayout.layout.width, tangleLayout.layout.height).fill(background_color);
@@ -1078,25 +1136,28 @@ function renderInteractiveChart(data, options = {}) {
   const nodeGroup = draw.group().addClass('nodes');
   tangleLayout.nodes.forEach(n => {
     const singleNodeGroup = nodeGroup.group().addClass('node');
-    
-    // 节点线条
-    const nodeLine = singleNodeGroup.group();
-    nodeLine.line(n.x, n.y - n.height / 2, n.x, n.y + n.height / 2)
-        .stroke('black')
-        .attr('stroke-width', 8);
-    nodeLine.line(n.x, n.y - n.height / 2, n.x, n.y + n.height / 2)
-        .stroke('white')
-        .attr('stroke-width', 4);
+    const nodeVisualHeight = Math.max(layoutNodeHeight, n.height);
+
+    const nodeRect = singleNodeGroup.rect(layoutNodeWidth, nodeVisualHeight)
+        .center(n.x, n.y)
+        .radius(node_radius)
+        .fill('white')
+        .stroke({color: 'black', width: 2});
 
     // 节点标签
-    const nodeText = singleNodeGroup.group();
-    nodeText.text(n.id)
-        .move(n.x + 4, n.y - n.height / 2 - 16)
+    const titleText = singleNodeGroup.text(n.id)
+      .move(n.x + 4, n.y - nodeVisualHeight / 2 - 10)
         .stroke(background_color)
         .attr('stroke-width', 2);
-    nodeText.text(n.id)
-        .move(n.x + 4, n.y - n.height / 2 - 16)
+    singleNodeGroup.text(n.id)
+      .move(n.x + 4, n.y - nodeVisualHeight / 2 - 10)
         .fill('black');
+
+    const valueText = singleNodeGroup.text(formatChartNodeValue(n.id))
+        .font({size: 8, anchor: 'middle', family: 'monospace'})
+        .fill('black')
+        .center(n.x, n.y);
+    chartState.nodeValueTextByName.set(n.id, valueText);
 
          // 添加交互事件
      singleNodeGroup
@@ -1105,10 +1166,12 @@ function renderInteractiveChart(data, options = {}) {
            dialogManager.showNodeDialog(n);
          })
          .mouseover(function() {
-           nodeText.attr('font-weight', 'bold');
+           titleText.attr('font-weight', 'bold');
+           nodeRect.stroke({color: '#333', width: 3});
          })
          .mouseout(function() {
-           nodeText.attr('font-weight', 'normal');
+           titleText.attr('font-weight', 'normal');
+           nodeRect.stroke({color: 'black', width: 2});
          })
          .attr('style', 'cursor: pointer');
   });

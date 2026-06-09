@@ -50,13 +50,13 @@ export function constructTangleLayout(levels, options = {}) {
 
 
   // layout
-  const padding = 8;
-  const node_height = 22;
-  const node_width = 70;
-  const bundle_width = 14;
-  const level_y_padding = 16;
-  const metro_d = 4;
-  const min_family_height = 22;
+  const padding = options.padding ?? 8;
+  const node_height = options.node_height ?? 22;
+  const node_width = options.node_width ?? 70;
+  const bundle_width = options.bundle_width ?? 14;
+  const level_y_padding = options.level_y_padding ?? 16;
+  const metro_d = options.metro_d ?? 4;
+  const min_family_height = options.min_family_height ?? node_height;
 
   options.c ||= 16;
   const c = options.c;
@@ -70,12 +70,12 @@ export function constructTangleLayout(levels, options = {}) {
   var x_offset = padding;
   var y_offset = padding;
   levels.forEach(l => {
-    x_offset += l.bundles.length * bundle_width; //线束之间是错开的
+    x_offset += l.bundles.length * bundle_width + 12; //线束之间是错开的，suchao: 12
     y_offset += level_y_padding;
     l.forEach((n, i) => {
       n.x = n.level * node_width + x_offset;
       n.y = node_height + y_offset + n.height / 2;
-      y_offset += node_height + n.height;
+      y_offset += node_height + n.height + 10;  //suchao:10
     });
   });
 
