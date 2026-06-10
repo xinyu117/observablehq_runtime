@@ -66,7 +66,10 @@
       </section>
 
       <section class="card table-card">
-        <h2>变量列表</h2>
+        <div class="page-head">
+          <h2>变量列表</h2>
+          <button id="variables-view-toggle-btn" type="button" class="secondary">缩小表示</button>
+        </div>
         <div class="form-actions">
           <label>
             关系链过滤
@@ -74,23 +77,30 @@
           </label>
           <button id="clear-relation-filter-btn" type="button" class="ghost">清空过滤</button>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>变量名</th>
-              <th>输入参数</th>
-              <th>params</th>
-              <th>值 / 计算式</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="variables-body"></tbody>
-        </table>
+        <div id="variables-section-body">
+          <table>
+            <thead>
+              <tr>
+                <th>变量名</th>
+                <th>输入参数</th>
+                <th>params</th>
+                <th>值 / 计算式</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="variables-body"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="card values-card">
-        <h2>当前所有变量和值</h2>
-        <pre id="values-output">点击“查看当前所有变量和值”加载</pre>
+        <div class="page-head">
+          <h2>当前所有变量和值</h2>
+          <button id="values-view-toggle-btn" type="button" class="secondary">缩小表示</button>
+        </div>
+        <div id="values-section-body">
+          <pre id="values-output">点击“查看当前所有变量和值”加载</pre>
+        </div>
       </section>
     </main>
 

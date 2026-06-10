@@ -14,6 +14,10 @@ const csvFile = document.getElementById("csv-file");
 const showValuesBtn = document.getElementById("show-values-btn");
 const tableBody = document.getElementById("variables-body");
 const valuesOutput = document.getElementById("values-output");
+const variablesViewToggleBtn = document.getElementById("variables-view-toggle-btn");
+const valuesViewToggleBtn = document.getElementById("values-view-toggle-btn");
+const variablesSectionBody = document.getElementById("variables-section-body");
+const valuesSectionBody = document.getElementById("values-section-body");
 const relationFilterInput = document.getElementById("relation-filter");
 const clearRelationFilterBtn = document.getElementById("clear-relation-filter-btn");
 const statusBadge = document.getElementById("front-only-status");
@@ -55,6 +59,8 @@ let runtime = null;
 let runtimeModule = null;
 let valueByName = new Map();
 let relationFilterText = "";
+let variablesSectionCollapsed = false;
+let valuesSectionCollapsed = false;
 const valueLineByName = new Map();
 const variableHandles = new Map();
 let selectedCollection = null;
@@ -173,6 +179,27 @@ function resetForm() {
   editingName = null;
   form.reset();
   setFormMode(false);
+}
+
+function setSectionCollapsed(section, collapsed) {
+  if (section === "variables") {
+    variablesSectionCollapsed = collapsed;
+    if (variablesSectionBody) variablesSectionBody.hidden = collapsed;
+    if (variablesViewToggleBtn) {
+      variablesViewToggleBtn.textContent = collapsed ? "正常表示" : "缩小表示";
+      variablesViewToggleBtn.setAttribute("aria-expanded", String(!collapsed));
+    }
+    return;
+  }
+
+  if (section === "values") {
+    valuesSectionCollapsed = collapsed;
+    if (valuesSectionBody) valuesSectionBody.hidden = collapsed;
+    if (valuesViewToggleBtn) {
+      valuesViewToggleBtn.textContent = collapsed ? "正常表示" : "缩小表示";
+      valuesViewToggleBtn.setAttribute("aria-expanded", String(!collapsed));
+    }
+  }
 }
 
 
@@ -1020,6 +1047,14 @@ clearRelationFilterBtn?.addEventListener("click", () => {
   refreshFilteredViews();
 });
 
+variablesViewToggleBtn?.addEventListener("click", () => {
+  setSectionCollapsed("variables", !variablesSectionCollapsed);
+});
+
+valuesViewToggleBtn?.addEventListener("click", () => {
+  setSectionCollapsed("values", !valuesSectionCollapsed);
+});
+
 collectionSelect.addEventListener("change", async () => {
   await switchCollection(collectionSelect.value);
 });
@@ -1296,6 +1331,8 @@ function renderInteractiveChart(data, options = {}) {
 }
 
 (async function boot() {
+  setSectionCollapsed("variables", false);
+  setSectionCollapsed("values", false);
   const routeCollection = getRouteCollection();
   setSelectedCollection(routeCollection || DEFAULT_FRONT_COLLECTION);
   await loadCollections();
