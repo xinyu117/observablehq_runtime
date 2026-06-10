@@ -14,6 +14,8 @@ const csvFile = document.getElementById("csv-file");
 const showValuesBtn = document.getElementById("show-values-btn");
 const tableBody = document.getElementById("variables-body");
 const valuesOutput = document.getElementById("values-output");
+const relationFilterInput = document.getElementById("relation-filter");
+const clearRelationFilterBtn = document.getElementById("clear-relation-filter-btn");
 const statusBadge = document.getElementById("front-only-status");
 const collectionSelect = document.getElementById("front-collection-select");
 const collectionNameInput = document.getElementById("front-collection-name");
@@ -52,6 +54,7 @@ let dirty = false;
 let runtime = null;
 let runtimeModule = null;
 let valueByName = new Map();
+let relationFilterText = "";
 const valueLineByName = new Map();
 const variableHandles = new Map();
 let selectedCollection = null;
@@ -229,15 +232,82 @@ function listDependents(name) {
     .sort((a, b) => a.localeCompare(b));
 }
 
+function parseRelationFilterNames(text) {
+  return Array.from(new Set(String(text || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)));
+}
+
+function getVisibleVariableNameSet() {
+  const seeds = parseRelationFilterNames(relationFilterText);
+  if (seeds.length === 0) return null;
+
+  const byName = new Map(variables.map((item) => [item.name, item]));
+  const validSeeds = seeds.filter((name) => byName.has(name));
+  if (validSeeds.length === 0) return new Set();
+
+  const childrenByParent = new Map();
+  for (const item of variables) {
+    for (const parentName of (Array.isArray(item.params) ? item.params : [])) {
+      if (!byName.has(parentName)) continue;
+      if (!childrenByParent.has(parentName)) childrenByParent.set(parentName, []);
+      childrenByParent.get(parentName).push(item.name);
+    }
+  }
+
+  const visible = new Set(validSeeds);
+  const upQueue = [...validSeeds];
+  while (upQueue.length > 0) {
+    const currentName = upQueue.shift();
+    const current = byName.get(currentName);
+    if (!current) continue;
+    for (const parentName of (Array.isArray(current.params) ? current.params : [])) {
+      if (!byName.has(parentName) || visible.has(parentName)) continue;
+      visible.add(parentName);
+      upQueue.push(parentName);
+    }
+  }
+
+  const downQueue = [...validSeeds];
+  while (downQueue.length > 0) {
+    const currentName = downQueue.shift();
+    const children = childrenByParent.get(currentName) || [];
+    for (const childName of children) {
+      if (visible.has(childName)) continue;
+      visible.add(childName);
+      downQueue.push(childName);
+    }
+  }
+
+  return visible;
+}
+
+function getVisibleVariables() {
+  const visibleNameSet = getVisibleVariableNameSet();
+  if (!visibleNameSet) return variables;
+  return variables.filter((item) => visibleNameSet.has(item.name));
+}
+
+function refreshFilteredViews() {
+  renderTable();
+  renderValuesBoard();
+  if (runtime) {
+    const levels = runtime_variablesByLevel();
+    renderInteractiveChart(levels);
+  }
+}
+
 function renderTable() {
+  const visibleVariables = getVisibleVariables();
   tableBody.innerHTML = "";
 
-  if (variables.length === 0) {
+  if (visibleVariables.length === 0) {
     tableBody.appendChild(emptyTemplate.content.cloneNode(true));
     return;
   }
 
-  for (const variable of variables) {
+  for (const variable of visibleVariables) {
     const tr = document.createElement("tr");
 
     const nameTd = document.createElement("td");
@@ -284,15 +354,16 @@ function renderTable() {
 }
 
 function renderValuesBoard() {
+  const visibleVariables = getVisibleVariables();
   valueLineByName.clear();
 
-  if (variables.length === 0) {
+  if (visibleVariables.length === 0) {
     valuesOutput.innerHTML = "";
     valuesOutput.textContent = "当前没有已定义变量。";
     return;
   }
 
-  const ordered = [...variables].map((item) => item.name).sort((a, b) => a.localeCompare(b));
+  const ordered = [...visibleVariables].map((item) => item.name).sort((a, b) => a.localeCompare(b));
   valuesOutput.innerHTML = "";
   for (let i = 0; i < ordered.length; i += 1) {
     const name = ordered[i];
@@ -812,17 +883,40 @@ function deleteVariable(name) {
   };
 
 function runtime_variablesByLevel() {
-  const levels = [];
+  const definedNameSet = new Set(variables.map((item) => item.name));
+  const visibleNameSet = getVisibleVariableNameSet();
+  const nodeByName = new Map();
+
   for (const variable of runtime._variables) {
-    const level = variable.level;
-   // if (!Number.isFinite(level)) continue;
-    if (!levels[level]) levels[level] = [];
-    levels[level].push(variable);
+    const name = variable?._name;
+    const level = variable?.level;
+    if (!name || !definedNameSet.has(name) /*|| !Number.isFinite(level)*/) continue;
+    if (visibleNameSet && !visibleNameSet.has(name)) continue;
+    nodeByName.set(name, {
+      id: name,
+      _name: name,
+      level,
+      parents: [],
+      bundles: []
+    });
   }
-    // constructTangleLayout 需要节点有 id 字段；这里直接复用变量名。
-  levels.forEach(level => level.forEach(variable => {
-    variable.id = variable._name;
-  }));
+
+  for (const variable of runtime._variables) {
+    const name = variable?._name;
+    const node = nodeByName.get(name);
+    if (!node) continue;
+
+    const inputs = Array.isArray(variable._inputs) ? variable._inputs : [];
+    node.parents = inputs
+      .map((input) => nodeByName.get(input?._name))
+      .filter(Boolean);
+  }
+
+  const levels = [];
+  for (const variable of nodeByName.values()) {
+    if (!levels[variable.level]) levels[variable.level] = [];
+    levels[variable.level].push(variable);
+  }
 
   return levels;
 }
@@ -913,6 +1007,17 @@ csvFile.addEventListener("change", async () => {
 
 showValuesBtn.addEventListener("click", () => {
   renderValuesBoard();
+});
+
+relationFilterInput?.addEventListener("input", () => {
+  relationFilterText = relationFilterInput.value.trim();
+  refreshFilteredViews();
+});
+
+clearRelationFilterBtn?.addEventListener("click", () => {
+  relationFilterText = "";
+  if (relationFilterInput) relationFilterInput.value = "";
+  refreshFilteredViews();
 });
 
 collectionSelect.addEventListener("change", async () => {
@@ -1013,6 +1118,17 @@ window.addEventListener("beforeunload", (event) => {
  * @returns {HTMLElement} SVG 元素
  */
 function renderInteractiveChart(data, options = {}) {
+
+  const hasNodes = Array.isArray(data) && data.some((level) => Array.isArray(level) && level.length > 0);
+  if (!hasNodes) {
+    if (chartState.draw) {
+      chartState.draw.remove();
+      chartState.draw = null;
+    }
+    chartState.levelSignature = "";
+    chartState.nodeValueTextByName.clear();
+    return null;
+  }
 
   const schemeDark2 = [
   "#1b9e77",
