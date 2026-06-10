@@ -1,5 +1,7 @@
 
 export function constructTangleLayout(levels, options = {}) {
+  const orderBy = options.orderBy;
+
   // 为节点添加level属性
   levels.forEach((l, i) => l.forEach(n => { n.level = i; n.bundles = [] })); // 1.forEach不返回新数组；2.箭头函数可以访问父级变量；3.遍历二维数组中的全部元素/节点
 
@@ -29,6 +31,37 @@ export function constructTangleLayout(levels, options = {}) {
     l.bundles = Object.keys(bundles_index).map(k => bundles_index[k]); //一个level有多少个线束; 把对象转换成数组
     l.bundles.forEach((b, i) => (b.i = i)); //给level内线束编号
   })
+
+  /*
+  *增加排序分支：
+   仅当 orderBy === "levelInBundle" 启用。
+   按每个 level 中首次出现的 bundle.id 分组顺序进行分组。
+   同一 bundle.id 的节点会连续排列。
+   无 bundle 的节点放在后面。
+ */
+  if (orderBy === "levelInBundle") {
+    levels.forEach(l => {
+      const bundleOrder = new Map();
+      l.forEach(n => {
+        if (n.bundle && !bundleOrder.has(n.bundle.id)) {
+          bundleOrder.set(n.bundle.id, bundleOrder.size);
+        }
+      });
+
+      l.sort((a, b) => {
+        const aHasBundle = !!a.bundle;
+        const bHasBundle = !!b.bundle;
+        if (aHasBundle && bHasBundle) {
+          return bundleOrder.get(a.bundle.id) - bundleOrder.get(b.bundle.id);
+        }
+        if (aHasBundle !== bHasBundle) {
+          return aHasBundle ? -1 : 1;
+        }
+        return 0;
+      });
+    });
+  }
+
   // 全部线束
   var bundles = levels.reduce((a, x) => a.concat(x.bundles), []);
 
@@ -58,9 +91,9 @@ export function constructTangleLayout(levels, options = {}) {
   const metro_d = options.metro_d ?? 4;
   const min_family_height = options.min_family_height ?? node_height;
 
-  options.c ||= 16;
+  options.c = options.c ?? 16;
   const c = options.c;
-  options.bigc ||= node_width + c;
+  options.bigc = options.bigc ?? node_width + c;
 
   nodes.forEach(
     n => (n.height = (Math.max(1, n.bundles.length) - 1) * metro_d) //节点的高度：根据线束的个数

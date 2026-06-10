@@ -1208,6 +1208,7 @@ function renderInteractiveChart(data, options = {}) {
     ...options,
     node_width,
     node_height,
+    orderBy:"levelInBundle",
     min_family_height: Math.max(node_height, 22)
   };
   const tangleLayout = constructTangleLayout(data, layoutOptions);
