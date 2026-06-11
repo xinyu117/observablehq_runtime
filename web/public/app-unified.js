@@ -23,6 +23,8 @@ const showValuesBtn = document.getElementById("show-values-btn");
 const showValuesAsyncBtn = document.getElementById("show-values-async-btn");
 const csvImportBtn = document.getElementById("csv-import-btn");
 const csvFile = document.getElementById("csv-file");
+const objectImportBtn = document.getElementById("object-import-btn");
+const objectImportFile = document.getElementById("object-import-file");
 const saveBtn = document.getElementById("save-btn");
 const exportBtn = document.getElementById("export-btn");
 const importBtn = document.getElementById("import-btn");
@@ -644,6 +646,48 @@ function parseCsvToVariables(text) {
   }
 
   return [...grouped.values()];
+}
+
+function parseObjectValue(rawValue) {
+  const value = String(rawValue || "").trim();
+  if (!value) throw new Error("对象值不能为空");
+
+  if (/^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(value)) return value;
+  if (/^(true|false|null|undefined|NaN|Infinity|-Infinity)$/.test(value)) return value;
+
+  const first = value[0];
+  const last = value[value.length - 1];
+  if ((first === "\"" && last === "\"") || (first === "'" && last === "'")) return value;
+  if ((first === "{" && last === "}") || (first === "[" && last === "]") || (first === "(" && last === ")")) return value;
+
+  return JSON.stringify(value);
+}
+
+function parseKeyValueTextToObjectExpression(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const entries = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const separatorAt = line.indexOf(":");
+    if (separatorAt <= 0) {
+      throw new Error(`第 ${i + 1} 行格式错误，应为 key:value`);
+    }
+
+    const key = line.slice(0, separatorAt).trim();
+    const rawValue = line.slice(separatorAt + 1).trim();
+    if (!key) throw new Error(`第 ${i + 1} 行 key 为空`);
+    if (!rawValue) throw new Error(`第 ${i + 1} 行 value 为空`);
+
+    const keyExpression = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key);
+    const valueExpression = parseObjectValue(rawValue);
+    entries.push(`  ${keyExpression}: ${valueExpression}`);
+  }
+
+  if (entries.length === 0) throw new Error("导入文件为空");
+  return `({\n${entries.join(",\n")}\n})`;
 }
 
 function validateImportedVariables(variables) {
@@ -1371,6 +1415,12 @@ csvImportBtn.addEventListener("click", () => {
   csvFile.click();
 });
 
+objectImportBtn?.addEventListener("click", () => {
+  if (!objectImportFile) return;
+  objectImportFile.value = "";
+  objectImportFile.click();
+});
+
 csvFile.addEventListener("change", async () => {
   const file = csvFile.files?.[0];
   if (!file) return;
@@ -1408,6 +1458,19 @@ csvFile.addEventListener("change", async () => {
     previewDialog.showModal();
   } catch (error) {
     window.alert(`CSV 导入失败: ${error.message}`);
+  }
+});
+
+objectImportFile?.addEventListener("change", async () => {
+  const file = objectImportFile.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    expressionInput.value = parseKeyValueTextToObjectExpression(text);
+    window.alert("对象导入成功，已填入“值 / 函数 / 计算式”");
+  } catch (error) {
+    window.alert(`对象导入失败: ${error.message}`);
   }
 });
 

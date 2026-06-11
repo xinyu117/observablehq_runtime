@@ -2,6 +2,29 @@
   "version": 2,
   "collections": [
     {
+      "name": "GPT",
+      "variables": [
+        {
+          "name": "fun_gpt",
+          "params": [
+            "prompt"
+          ],
+          "options": {
+            "params": {}
+          },
+          "expression": "async function chat(prompt) {\nconst res = await fetch('https://api.deepseek.com/v1/chat/completions9999', {\n        method: 'POST',\n        headers: {\n            'Content-Type': 'application/json',\n            'Authorization': `Bearer sk-cdacf7f7b3234ea5b8a7caff2f1e2c2d`\n        },\n        body: JSON.stringify({\n            model: 'deepseek-chat',\n            messages: [{ role: 'user', content: prompt }]\n        })\n    });\n    const data = await res.json();\n    return data.choices[0].message.content;\n}"
+        },
+        {
+          "name": "prompt",
+          "params": [],
+          "options": {
+            "params": {}
+          },
+          "expression": "'把以下数据转成JS对象： k1: 1, k2: \"v2\", k3: \"v3\",你只输出转成JS对象'"
+        }
+      ]
+    },
+    {
       "name": "Test1",
       "variables": [
         {
@@ -10,7 +33,9 @@
             "list"
           ],
           "options": {
-            "params": {}
+            "params": {
+              "level": "1"
+            }
           },
           "expression": "list[0].k2"
         },
@@ -20,17 +45,49 @@
             "filter"
           ],
           "options": {
-            "params": {}
+            "params": {
+              "level": "2"
+            }
           },
           "expression": "(filter) => filter"
+        },
+        {
+          "name": "getMap",
+          "params": [
+            "map2"
+          ],
+          "options": {
+            "params": {}
+          },
+          "expression": "map2[\"k2\"]"
         },
         {
           "name": "list",
           "params": [],
           "options": {
-            "params": {}
+            "params": {
+              "level": "0"
+            }
           },
           "expression": "[{k1:'a',k2:'b'},{k1:'a1',k2:'b1'}]"
+        },
+        {
+          "name": "map",
+          "params": [],
+          "options": {
+            "params": {
+              "level": "0"
+            }
+          },
+          "expression": "{\nk1:\"v1\",\nk2:\"v2\"\n}"
+        },
+        {
+          "name": "map2",
+          "params": [],
+          "options": {
+            "params": {}
+          },
+          "expression": "({\n  k1: 1,\n  k2: \"v2\",\n  k3: \"v3\"\n})"
         }
       ]
     },
@@ -48,7 +105,7 @@
               "level": "5"
             }
           },
-          "expression": "function() {}"
+          "expression": "function() { return 99;}"
         },
         {
           "name": "Adonis",
@@ -198,7 +255,7 @@
               "level": "0"
             }
           },
-          "expression": "function() {}"
+          "expression": "function getValue() {\n  return new Promise(resolve => {\n    setTimeout(() => {\n      resolve(9);\n    }, 10000); // 10秒\n  });\n}"
         },
         {
           "name": "Coeus",
@@ -351,7 +408,7 @@
               "level": "1"
             }
           },
-          "expression": "function() {}"
+          "expression": "async  function(Chaos) { return await Chaos._promise}"
         },
         {
           "name": "Hades",
@@ -843,10 +900,10 @@
               "level": "0"
             }
           },
-          "expression": "function() {}"
+          "expression": "['kite','like','rice']"
         },
         {
-          "name": "suchao321",
+          "name": "suchao3210",
           "params": [],
           "options": {
             "params": {
