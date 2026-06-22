@@ -51,7 +51,8 @@ const builtinValues = {
   Object,
   RegExp,
   Map,
-  Set
+  Set,
+  color: () => "red"
 };
 
 let variables = [];
@@ -641,16 +642,16 @@ function createObserver(name) {
 function applyVariableToRuntime(variable) {
   ensureRuntime();
 
+  const {dependencies, definition} = safeCreateDefinition(variable);
+
   let handle = variableHandles.get(variable.name);
   if (handle) {
-    handle.delete();
-    variableHandles.delete(variable.name);
+    runtimeModule.redefine(variable.name, dependencies, definition);
+    return;
   }
 
   handle = runtimeModule.variable(createObserver(variable.name), getVariableOptions(variable));
   variableHandles.set(variable.name, handle);
-
-  const {dependencies, definition} = safeCreateDefinition(variable);
   handle.define(variable.name, dependencies, definition);
 }
 
