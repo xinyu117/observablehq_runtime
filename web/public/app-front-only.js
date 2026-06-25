@@ -61,6 +61,7 @@ let dirty = false;
 let runtime = null;
 let runtimeModule = null;
 let valueByName = new Map();
+let rawValueByName = new Map();
 let relationFilterText = "";
 let variablesSectionCollapsed = false;
 let valuesSectionCollapsed = false;
@@ -72,6 +73,12 @@ const chartState = {
   levelSignature: "",
   nodeValueTextByName: new Map()
 };
+const PENDING_VALUE = Symbol("pending-value");
+
+let markdownRendererPromise = null;
+let previewDialog = null;
+let previewTitle = null;
+let previewBody = null;
 
 function getRouteCollection() {
   const url = new URL(window.location.href);
@@ -356,6 +363,13 @@ function renderTable() {
     const actions = document.createElement("div");
     actions.className = "actions";
 
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.textContent = "查看";
+    viewBtn.addEventListener("click", () => {
+      void showVariablePreview(variable.name);
+    });
+
     const editBtn = document.createElement("button");
     editBtn.type = "button";
     editBtn.textContent = "编辑";
@@ -375,7 +389,7 @@ function renderTable() {
       deleteVariable(variable.name);
     });
 
-    actions.append(editBtn, deleteBtn);
+    actions.append(viewBtn, editBtn, deleteBtn);
     actionTd.appendChild(actions);
 
     tr.append(nameTd, paramsTd, optionParamsTd, expressionTd, actionTd);
@@ -431,6 +445,139 @@ function clearDetachedValues() {
   for (const name of [...valueByName.keys()]) {
     if (!nameSet.has(name)) valueByName.delete(name);
   }
+  for (const name of [...rawValueByName.keys()]) {
+    if (!nameSet.has(name)) rawValueByName.delete(name);
+  }
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function isLikelyUrlText(text) {
+  const source = String(text || "").trim();
+  if (!source) return false;
+  try {
+    const url = new URL(source);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isLikelyMarkdownText(text) {
+  const source = String(text || "");
+  if (!source.trim()) return false;
+  return /(^|\n)#{1,6}\s+\S+/.test(source)
+    || /\*\*[^*]+\*\*/.test(source)
+    || /(^|\n)\s*[-*+]\s+\S+/.test(source)
+    || /\[[^\]]+\]\([^\)]+\)/.test(source)
+    || /```/.test(source)
+    || /(^|\n)>\s+\S+/.test(source);
+}
+
+async function getMarkdownRenderer() {
+  if (!markdownRendererPromise) {
+    markdownRendererPromise = Promise.all([
+      import("https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js"),
+      import("https://cdn.jsdelivr.net/npm/dompurify@3.2.6/+esm")
+    ]).then(([markedModule, purifierModule]) => ({
+      marked: markedModule.marked,
+      DOMPurify: purifierModule.default
+    }));
+  }
+  return markdownRendererPromise;
+}
+
+function ensurePreviewDialog() {
+  if (previewDialog) return previewDialog;
+
+  previewDialog = document.createElement("dialog");
+  previewDialog.className = "preview-dialog";
+  previewDialog.innerHTML = `
+    <div class="preview-panel">
+      <div class="preview-header">
+        <h3 id="front-preview-title"></h3>
+        <button id="front-preview-close-btn" type="button" class="ghost">关闭</button>
+      </div>
+      <div id="front-preview-body" class="preview-summary"></div>
+    </div>
+  `;
+
+  document.body.appendChild(previewDialog);
+  previewTitle = previewDialog.querySelector("#front-preview-title");
+  previewBody = previewDialog.querySelector("#front-preview-body");
+
+  previewDialog.querySelector("#front-preview-close-btn")?.addEventListener("click", () => {
+    previewDialog.close();
+  });
+
+  previewDialog.addEventListener("click", (event) => {
+    if (event.target === previewDialog) previewDialog.close();
+  });
+
+  return previewDialog;
+}
+
+function renderPreviewPlainText(text) {
+  if (!previewBody) return;
+  previewBody.innerHTML = `<pre style="margin:0;white-space:pre-wrap;word-break:break-word;">${escapeHtml(text)}</pre>`;
+}
+
+async function showVariablePreview(name) {
+  const dialog = ensurePreviewDialog();
+  if (!previewTitle || !previewBody) return;
+
+  previewTitle.textContent = `${name} 的值`;
+  previewBody.textContent = "加载中...";
+
+  if (!dialog.open) dialog.showModal();
+
+  if (!rawValueByName.has(name) || rawValueByName.get(name) === PENDING_VALUE) {
+    previewBody.textContent = "<pending>";
+    return;
+  }
+
+  const rawValue = rawValueByName.get(name);
+
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    if (isLikelyUrlText(trimmed)) {
+      previewBody.innerHTML = `<a href="${escapeHtml(trimmed)}" target="_blank" rel="noopener noreferrer">${escapeHtml(trimmed)}</a>`;
+      return;
+    }
+
+    if (isLikelyMarkdownText(rawValue)) {
+      try {
+        const {marked, DOMPurify} = await getMarkdownRenderer();
+        const html = marked.parse(rawValue);
+        previewBody.innerHTML = DOMPurify.sanitize(html);
+      } catch {
+        renderPreviewPlainText(rawValue);
+      }
+      return;
+    }
+
+    renderPreviewPlainText(rawValue);
+    return;
+  }
+
+  if (rawValue instanceof Error) {
+    renderPreviewPlainText(`<Error: ${rawValue.message}>`);
+    return;
+  }
+
+  if (typeof rawValue === "function") {
+    renderPreviewPlainText(rawValue.toString());
+    return;
+  }
+
+  renderPreviewPlainText(formatInspectable(rawValue));
 }
 
 async function requestJson(url, options = {}) {
@@ -623,16 +770,19 @@ function createObserver(name) {
   return {
     pending() {
       valueByName.set(name, "<pending>");
+      rawValueByName.set(name, PENDING_VALUE);
       updateValueLine(name);
       updateChartNodeValue(name);
     },
     fulfilled(value) {
       valueByName.set(name, formatInspectable(value));
+      rawValueByName.set(name, value);
       updateValueLine(name);
       updateChartNodeValue(name);
     },
     rejected(error) {
       valueByName.set(name, `<Error: ${error?.message || String(error)}>`);
+      rawValueByName.set(name, error instanceof Error ? error : new Error(String(error)));
       updateValueLine(name);
       updateChartNodeValue(name);
     }
@@ -830,6 +980,7 @@ async function loadSavedVariables() {
   variables.sort((a, b) => a.name.localeCompare(b.name));
 
   valueByName = new Map(variables.map((item) => [item.name, "<pending>"]));
+  rawValueByName = new Map(variables.map((item) => [item.name, PENDING_VALUE]));
   initializeRuntimeFromVariables();
 
   renderTable();
@@ -913,6 +1064,7 @@ function deleteVariable(name) {
   removeVariableFromRuntime(name);
   variables = variables.filter((item) => item.name !== name);
   valueByName.delete(name);
+  rawValueByName.delete(name);
 
   if (editingName === name) resetForm();
 
@@ -1031,6 +1183,7 @@ form.addEventListener("submit", async (event) => {
       if (previousName !== variable.name) {
         removeVariableFromRuntime(previousName);
         valueByName.delete(previousName);
+        rawValueByName.delete(previousName);
       }
     } else {
       variables = [...variables, variable];
@@ -1038,6 +1191,7 @@ form.addEventListener("submit", async (event) => {
 
     applyVariableToRuntime(variable);
     if (!valueByName.has(variable.name)) valueByName.set(variable.name, "<pending>");
+    if (!rawValueByName.has(variable.name)) rawValueByName.set(variable.name, PENDING_VALUE);
 
     variables.sort((a, b) => a.name.localeCompare(b.name));
     resetForm();

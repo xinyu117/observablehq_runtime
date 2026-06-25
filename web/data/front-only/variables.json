@@ -7,12 +7,12 @@
         {
           "name": "fun_gpt",
           "params": [
-            "prompt"
+            "prompt2"
           ],
           "options": {
             "params": {}
           },
-          "expression": "async function chat(prompt) {\nconst res = await fetch('https://api.deepseek.com/v1/chat/completions9999', {\n        method: 'POST',\n        headers: {\n            'Content-Type': 'application/json',\n            'Authorization': `Bearer sk-cdacf7f7b3234ea5b8a7caff2f1e2c2d`\n        },\n        body: JSON.stringify({\n            model: 'deepseek-chat',\n            messages: [{ role: 'user', content: prompt }]\n        })\n    });\n    const data = await res.json();\n    return data.choices[0].message.content;\n}"
+          "expression": "async function chat(prompt2) {\nconst res = await fetch('https://api.deepseek.com/v1/chat/completions999', {\n        method: 'POST',\n        headers: {\n            'Content-Type': 'application/json',\n            'Authorization': `Bearer sk-cdacf7f7b3234ea5b8a7caff2f1e2c2d`\n        },\n        body: JSON.stringify({\n            model: 'deepseek-chat',\n            messages: [{ role: 'user', content: prompt2}]\n        })\n    });\n    const data = await res.json();\n    return data.choices[0].message.content;\n}"
         },
         {
           "name": "prompt",
@@ -20,7 +20,25 @@
           "options": {
             "params": {}
           },
-          "expression": "'把以下数据转成JS对象： k1: 1, k2: \"v2\", k3: \"v3\",你只输出转成JS对象'"
+          "expression": "'把以下数据转成JS对象： k1: 1, k2: \"v2\", k3: \"v33\",你只输出转成JS对象'"
+        },
+        {
+          "name": "prompt2",
+          "params": [
+            "word"
+          ],
+          "options": {
+            "params": {}
+          },
+          "expression": "`英文单词${word} 初中水平的例句`"
+        },
+        {
+          "name": "word",
+          "params": [],
+          "options": {
+            "params": {}
+          },
+          "expression": "\"make\""
         }
       ]
     },
@@ -50,6 +68,14 @@
             }
           },
           "expression": "(filter) => filter"
+        },
+        {
+          "name": "fun_fun",
+          "params": [],
+          "options": {
+            "params": {}
+          },
+          "expression": "() =>((filter) => filter)"
         },
         {
           "name": "getMap",
@@ -88,6 +114,32 @@
             "params": {}
           },
           "expression": "({\n  k1: 1,\n  k2: \"v2\",\n  k3: \"v3\"\n})"
+        },
+        {
+          "name": "obj",
+          "params": [
+            "filter",
+            "list",
+            "fun_fun"
+          ],
+          "options": {
+            "params": {
+              "level": "1"
+            }
+          },
+          "expression": "{filter,list,fun_fun}"
+        },
+        {
+          "name": "obj2",
+          "params": [
+            "obj"
+          ],
+          "options": {
+            "params": {
+              "level": "2"
+            }
+          },
+          "expression": "obj.fun_fun(1)"
         }
       ]
     },
