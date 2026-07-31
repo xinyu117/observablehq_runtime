@@ -566,18 +566,68 @@ function normalizeImportedVariable(raw) {
 }
 
 function parseCsvToVariables(text) {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (lines.length === 0) throw new Error("CSV 文件为空");
+  const parseCsvRows = (source) => {
+    const rows = [];
+    let row = [];
+    let cell = "";
+    let inQuotes = false;
 
-  const readCells = (raw) => {
-    const cells = raw.split(",").map((item) => item.trim());
-    while (cells.length > 0 && cells[cells.length - 1] === "") {
-      cells.pop();
+    for (let i = 0; i < source.length; i += 1) {
+      const ch = source[i];
+
+      if (inQuotes) {
+        if (ch === "\"") {
+          if (source[i + 1] === "\"") {
+            cell += "\"";
+            i += 1;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          cell += ch;
+        }
+        continue;
+      }
+
+      if (ch === "\"") {
+        inQuotes = true;
+        continue;
+      }
+
+      if (ch === ",") {
+        row.push(cell.trim());
+        cell = "";
+        continue;
+      }
+
+      if (ch === "\n" || ch === "\r") {
+        if (ch === "\r" && source[i + 1] === "\n") i += 1;
+        row.push(cell.trim());
+        while (row.length > 0 && row[row.length - 1] === "") row.pop();
+        if (row.length > 0) rows.push(row);
+        row = [];
+        cell = "";
+        continue;
+      }
+
+      cell += ch;
     }
-    return cells;
+
+    if (inQuotes) {
+      throw new Error("CSV 引号未闭合");
+    }
+
+    row.push(cell.trim());
+    while (row.length > 0 && row[row.length - 1] === "") row.pop();
+    if (row.length > 0) rows.push(row);
+
+    return rows;
   };
 
-  const firstCells = readCells(lines[0]).map((item) => item.toLowerCase());
+  const rows = parseCsvRows(String(text || ""));
+  if (rows.length === 0) throw new Error("CSV 文件为空");
+
+  const firstCells = rows[0].map((item) => item.toLowerCase());
   const hasHeader = firstCells[0] === "name"
     && (firstCells[1] === "input" || firstCells[1] === "param")
     && (firstCells[2] === "function" || firstCells[2] === "expression");
@@ -585,9 +635,8 @@ function parseCsvToVariables(text) {
   const startAt = hasHeader ? 1 : 0;
   const grouped = new Map();
 
-  for (let i = startAt; i < lines.length; i += 1) {
-    const raw = lines[i];
-    const cells = readCells(raw);
+  for (let i = startAt; i < rows.length; i += 1) {
+    const cells = rows[i];
 
     if (cells.length < 3) {
       throw new Error(`第 ${i + 1} 行格式错误，应至少包含 name,param,expression`);

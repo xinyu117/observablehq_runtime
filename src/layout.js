@@ -1,6 +1,26 @@
 
+export function filterInputOnlyParents(levels) {
+  const nodeIds = new Set(levels.reduce((acc, level) => {
+    level.forEach((node) => acc.push(node.id));
+    return acc;
+  }, []));
+
+  levels.forEach((level) => {
+    level.forEach((node) => {
+      const parents = Array.isArray(node.parents) ? node.parents : [];
+      node.parents = parents.filter((parent) => parent && nodeIds.has(parent.id));
+    });
+  });
+
+  return levels;
+}
+
 export function constructTangleLayout(levels, options = {}) {
   const orderBy = options.orderBy;
+
+  if (options.filterInputOnlyParents === true) {
+    filterInputOnlyParents(levels);
+  }
 
   // 为节点添加level属性
   levels.forEach((l, i) => l.forEach(n => { n.level = i; n.bundles = [] })); // 1.forEach不返回新数组；2.箭头函数可以访问父级变量；3.遍历二维数组中的全部元素/节点
@@ -153,7 +173,7 @@ export function constructTangleLayout(levels, options = {}) {
       (l.target.bundles.length * metro_d) / 2 +
       metro_d / 2;
     l.ys = l.source.y;
-    l.c1 = l.source.level - l.target.level > 1 ? Math.min(options.bigc, l.xb - l.xt, l.yb - l.yt) - c : c;
+    l.c1 = l.source.level - l.target.level > 1 ? Math.min(options.bigc, l.xb - l.xt, l.ys - l.yt) - c : c;
     l.c2 = c;
   });
 
