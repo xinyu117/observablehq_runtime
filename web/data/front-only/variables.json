@@ -982,6 +982,10 @@
       ]
     },
     {
+      "name": "os-taxonomy",
+      "variables": []
+    },
+    {
       "name": "默认集合",
       "variables": []
     }

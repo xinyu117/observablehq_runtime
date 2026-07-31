@@ -11,9 +11,11 @@ const publicDir = path.join(__dirname, "public");
 const dataDir = path.join(__dirname, "data");
 const frontOnlyDataDir = path.join(dataDir, "front-only");
 const runtimeSrcDir = path.join(__dirname, "..", "src");
+const osTaxonomyTopicsPath = path.join(dataDir, "os-taxonomy", "data", "topics.json");
 
 const storage = new VariableStorage({dataDir});
 const frontOnlyStorage = new VariableStorage({dataDir: frontOnlyDataDir});
+let osTaxonomyTopicsByIdPromise = null;
 
 const MIME_BY_EXT = {
   ".html": "text/html; charset=utf-8",
@@ -36,6 +38,23 @@ function sendDownloadJson(res, fileName, payload) {
     "Content-Disposition": `attachment; filename="${fileName}"`
   });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+async function getOsTaxonomyTopicsById() {
+  if (!osTaxonomyTopicsByIdPromise) {
+    osTaxonomyTopicsByIdPromise = fs.readFile(osTaxonomyTopicsPath, "utf8").then((raw) => {
+      const parsed = JSON.parse(raw);
+      const topics = Array.isArray(parsed?.topics) ? parsed.topics : [];
+      const map = new Map();
+      for (const topic of topics) {
+        const id = typeof topic?.id === "string" ? topic.id : "";
+        if (!id) continue;
+        map.set(id, topic);
+      }
+      return map;
+    });
+  }
+  return osTaxonomyTopicsByIdPromise;
 }
 
 function getCollectionName(url) {
@@ -248,6 +267,24 @@ async function serveRuntimeSource(req, res, pathname) {
 }
 
 async function handleApi(req, res, url) {
+  if (req.method === "GET" && url.pathname.startsWith("/api/os-taxonomy/topics/")) {
+    const topicId = decodeURIComponent(url.pathname.slice("/api/os-taxonomy/topics/".length));
+    if (!topicId) {
+      sendJson(res, 400, {error: "缺少 topicId"});
+      return;
+    }
+
+    const topicsById = await getOsTaxonomyTopicsById();
+    const topic = topicsById.get(topicId);
+    if (!topic) {
+      sendJson(res, 404, {error: "未找到 topic", topicId});
+      return;
+    }
+
+    sendJson(res, 200, {topic});
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/front-only/collections") {
     sendJson(res, 200, {collections: frontOnlyStorage.listCollections()});
     return;

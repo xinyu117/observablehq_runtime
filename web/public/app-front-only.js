@@ -1,5 +1,6 @@
 ﻿import {Runtime, constructTangleLayout} from "/runtime-src/index.js";
 import {SVG} from "./svg.js";
+import {dialogManager} from "./DialogManager.js";
 
 const form = document.getElementById("variable-form");
 const nameInput = document.getElementById("name");
@@ -74,6 +75,7 @@ const chartState = {
   nodeValueTextByName: new Map()
 };
 const PENDING_VALUE = Symbol("pending-value");
+const topicCacheById = new Map();
 
 let markdownRendererPromise = null;
 let previewDialog = null;
@@ -595,6 +597,54 @@ async function requestJson(url, options = {}) {
   }
 
   return payload;
+}
+
+async function fetchTopicById(topicId) {
+  const id = String(topicId || "").trim();
+  if (!id) return null;
+  if (topicCacheById.has(id)) return topicCacheById.get(id);
+
+  try {
+    const payload = await requestJson(`/api/os-taxonomy/topics/${encodeURIComponent(id)}`);
+    const topic = payload?.topic || null;
+    topicCacheById.set(id, topic);
+    return topic;
+  } catch {
+    topicCacheById.set(id, null);
+    return null;
+  }
+}
+
+function extractReturnedStringLiteral(expression) {
+  const source = String(expression || "");
+  const match = source.match(/return\s+(["'])(.*?)\1\s*;?/s);
+  if (!match) return "";
+
+  const quote = match[1];
+  const raw = match[2];
+  const normalized = quote === "\""
+    ? raw.replace(/\\"/g, "\"")
+    : raw.replace(/\\'/g, "'");
+  return normalized.replace(/\\\\/g, "\\");
+}
+
+function resolveTopicIdForNode(nodeId) {
+  const id = String(nodeId || "").trim();
+  if (!id) return "";
+
+  const variable = variables.find((item) => item.name === id);
+  if (!variable) return id;
+
+  const fromExpression = extractReturnedStringLiteral(variable.expression);
+  return fromExpression || id;
+}
+
+async function showTopicDialogForNode(node) {
+  const nodeId = String(node?.id || "").trim();
+  if (!nodeId) return;
+  const resolvedTopicId = resolveTopicIdForNode(nodeId);
+  const topic = await fetchTopicById(resolvedTopicId) || await fetchTopicById(nodeId);
+  dialogManager.showNodeDialog({...node, topic});
 }
 
 function isIdentifierStart(ch) {
@@ -1581,9 +1631,9 @@ function renderInteractiveChart(data, options = {}) {
 
          // 添加交互事件
      singleNodeGroup
-         .click(function(e) {
+         .dblclick(async function(e) {
            e.stopPropagation();
-           dialogManager.showNodeDialog(n);
+           await showTopicDialogForNode(n);
          })
          .mouseover(function() {
            titleText.attr('font-weight', 'bold');
