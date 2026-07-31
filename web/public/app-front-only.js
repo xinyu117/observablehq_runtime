@@ -82,6 +82,8 @@ let previewDialog = null;
 let previewTitle = null;
 let previewBody = null;
 
+// 从当前 URL 中读取 collection 查询参数。
+// 目的：让页面刷新/回退后仍然能恢复到同一个变量集合。
 function getRouteCollection() {
   const url = new URL(window.location.href);
   const value = url.searchParams.get("collection");
@@ -89,6 +91,8 @@ function getRouteCollection() {
   return collection || "";
 }
 
+// 将集合名写回浏览器地址栏。
+// replace=true 用于初始化或回退场景，避免污染历史记录；否则 push 形成可回退历史。
 function updateRouteCollection(name, {replace = false} = {}) {
   const url = new URL(window.location.href);
   if (name) {
@@ -101,10 +105,13 @@ function updateRouteCollection(name, {replace = false} = {}) {
   window.history[method]({}, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
+// 统一设置当前选中的集合名，兜底为前端默认集合。
 function setSelectedCollection(name) {
   selectedCollection = String(name || "").trim() || DEFAULT_FRONT_COLLECTION;
 }
 
+// 组装 API 请求地址。
+// 仅对“与集合绑定”的接口追加 collection 查询参数，避免影响其他公共接口。
 function buildApiUrl(rawUrl) {
   const url = new URL(rawUrl, window.location.origin);
   const attachCollection = url.pathname === "/api/front-only/variables"
@@ -117,6 +124,7 @@ function buildApiUrl(rawUrl) {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+// 深拷贝变量配置，避免直接修改来自后端或 UI 状态中的对象引用。
 function cloneVariables(list) {
   return list.map((item) => ({
     name: item.name,
@@ -128,11 +136,13 @@ function cloneVariables(list) {
   }));
 }
 
+// 解析输入参数字符串（逗号分隔）为去重后的参数数组。
 function parseParams(input) {
   if (!input.trim()) return [];
   return Array.from(new Set(input.split(",").map((item) => item.trim()).filter(Boolean)));
 }
 
+// 规范化 options.params：仅保留非空键，并统一把值转成字符串。
 function normalizeOptionParams(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result = {};
@@ -144,6 +154,8 @@ function normalizeOptionParams(value) {
   return result;
 }
 
+// 解析 UI 中的 params 键值对文本（示例：a:1, b:2）。
+// 会对键名做合法标识符校验，避免后续运行时参数注入异常。
 function parseOptionParams(input) {
   const text = String(input || "").trim();
   if (!text) return {};
@@ -216,6 +228,8 @@ function setSectionCollapsed(section, collapsed) {
 
 
 
+// 确保 Runtime 实例存在，并挂载 afterCompute 钩子以驱动图表刷新。
+// 注意：这里只初始化一次，后续重复调用会直接返回。
 function ensureRuntime() {
   if (runtime && runtimeModule) return;
   runtime = new Runtime(builtinValues);
@@ -230,6 +244,8 @@ function ensureRuntime() {
   });
 }
 
+// 彻底重置运行时与图表关联状态。
+// 用于重新加载集合、批量导入后重建计算图，防止旧句柄残留。
 function resetRuntime() {
   if (runtime) runtime.dispose();
   if (runtime) runtime.unuse();
@@ -239,6 +255,8 @@ function resetRuntime() {
   chartState.levelSignature = "";
 }
 
+// 变量定义校验：
+// 1) 名称合法；2) 表达式非空；3) 参数不包含自身；4) params 键合法；5) 名称不重复。
 function validateVariable(variable, excludedName = "") {
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(variable.name)) {
     throw new Error("变量名不合法");
@@ -278,6 +296,8 @@ function parseRelationFilterNames(text) {
     .filter(Boolean)));
 }
 
+// 计算“关系链过滤”后可见的节点集合。
+// 规则：从种子节点同时向上追溯祖先、向下遍历子孙，最终并集作为可见集合。
 function getVisibleVariableNameSet() {
   const seeds = parseRelationFilterNames(relationFilterText);
   if (seeds.length === 0) return null;
@@ -583,6 +603,7 @@ async function showVariablePreview(name) {
 }
 
 async function requestJson(url, options = {}) {
+  // 统一请求入口：自动补全集合参数、解析 JSON、并把错误包装成可读异常。
   const response = await fetch(buildApiUrl(url), {
     headers: {"Content-Type": "application/json"},
     ...options
@@ -599,6 +620,7 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
+// 按 topicId 拉取 topic 详情，并做前端缓存，避免双击节点时重复请求。
 async function fetchTopicById(topicId) {
   const id = String(topicId || "").trim();
   if (!id) return null;
@@ -615,6 +637,8 @@ async function fetchTopicById(topicId) {
   }
 }
 
+// 从表达式中提取 return 的字符串字面量。
+// 目的：当变量名被“安全化”后（例如 - 变 _），仍可反解出原始 topicId。
 function extractReturnedStringLiteral(expression) {
   const source = String(expression || "");
   const match = source.match(/return\s+(["'])(.*?)\1\s*;?/s);
@@ -628,6 +652,8 @@ function extractReturnedStringLiteral(expression) {
   return normalized.replace(/\\\\/g, "\\");
 }
 
+// 解析节点对应的真实 topicId：
+// 优先尝试从变量表达式反解原始 id；失败再回退为当前节点 id。
 function resolveTopicIdForNode(nodeId) {
   const id = String(nodeId || "").trim();
   if (!id) return "";
@@ -639,6 +665,8 @@ function resolveTopicIdForNode(nodeId) {
   return fromExpression || id;
 }
 
+// 双击节点时的详情入口。
+// 会先查真实 topicId，再回退查节点 id，尽量命中 topics.json。
 async function showTopicDialogForNode(node) {
   const nodeId = String(node?.id || "").trim();
   if (!nodeId) return;
@@ -670,6 +698,11 @@ function prevNonSpace(input, index) {
 }
 
 function extractDependencies(expression) {
+  // 轻量表达式词法扫描：
+  // - 跳过字符串内容
+  // - 识别标识符
+  // - 排除关键字、属性访问和对象 key
+  // 最终得到可作为输入依赖的变量名列表。
   const deps = [];
   const seen = new Set();
   let quote = null;
@@ -757,6 +790,10 @@ function extractFunctionDependencies(expression) {
 }
 
 function createDefinition(variable) {
+  // 根据变量表达式类型创建可执行 definition：
+  // - 函数表达式：直接执行后作为 definition
+  // - 普通表达式：封装为 new Function
+  // 同时返回依赖列表，供 runtime.define/redefine 使用。
   const params = Array.isArray(variable.params) ? variable.params : [];
   const expression = variable.expression;
   const functionExpression = isFunctionExpression(expression);
@@ -840,6 +877,7 @@ function createObserver(name) {
 }
 
 function applyVariableToRuntime(variable) {
+  // 增量应用到 runtime：存在则 redefine，不存在则 define。
   ensureRuntime();
 
   const {dependencies, definition} = safeCreateDefinition(variable);
@@ -871,6 +909,7 @@ function initializeRuntimeFromVariables() {
 }
 
 async function mergeImportedVariables(imported) {
+  // 导入合并策略：同名覆盖、其余保留；随后逐个应用到 runtime。
   const map = new Map(variables.map((item) => [item.name, item]));
   for (const item of imported) {
     map.set(item.name, {
@@ -893,7 +932,10 @@ async function mergeImportedVariables(imported) {
   renderValuesBoard();
 }
 
+// 解析 CSV 为变量列表。
+// 支持引号字段、双引号转义、可选头部以及同名行合并（多行 param 汇总）。
 function parseCsvToVariables(text) {
+  // 按字符解析 CSV，避免简单 split(',') 在引号/换行场景下失效。
   const parseCsvRows = (source) => {
     const rows = [];
     let row = [];
@@ -1206,6 +1248,11 @@ function deleteVariable(name) {
   };
 
 function runtime_variablesByLevel() {
+  // 从 runtime 的内部变量构建绘图节点：
+  // - 仅保留当前集合内变量
+  // - 过滤关系链不可见节点
+  // - 将 _inputs 映射为 parents
+  // - 按 variable.level 分层返回
   const definedNameSet = new Set(variables.map((item) => item.name));
   const visibleNameSet = getVisibleVariableNameSet();
   const nodeByName = new Map();
@@ -1244,6 +1291,8 @@ function runtime_variablesByLevel() {
   return levels;
 }
 
+// 为层级结构生成稳定签名。
+// 用于判断“图结构是否变化”，避免无变化时重复重绘。
 function createLevelsSignature(levels) {
   return levels
     .map((level, index) => {
@@ -1471,6 +1520,8 @@ window.addEventListener("beforeunload", (event) => {
  */
 function renderInteractiveChart(data, options = {}) {
 
+  // 若没有任何可绘制节点，清理画布并退出。
+
   const hasNodes = Array.isArray(data) && data.some((level) => Array.isArray(level) && level.length > 0);
   if (!hasNodes) {
     if (chartState.draw) {
@@ -1517,6 +1568,7 @@ function renderInteractiveChart(data, options = {}) {
   const node_radius = 6;
 
   const nextSignature = createLevelsSignature(data, {filterInputOnlyParents: true});
+  // 签名不变时复用现有图，减少不必要的 SVG 重建。
   if (chartState.draw && chartState.levelSignature === nextSignature) {
     return chartState.draw.node;
   }
@@ -1564,6 +1616,7 @@ function renderInteractiveChart(data, options = {}) {
   // 绘制线束（bundles）- 添加交互功能
   const bundleGroup = draw.group().addClass('bundles');
   tangleLayout.bundles.forEach((b, i) => {
+    // 每个 bundle 由多段 link 组成，按顺序拼接为一条复合路径。
     const pathData = b.links.map(l => 
       ` M${l.xt} ${l.yt}
        L${l.xb - l.c1} ${l.yt}
@@ -1631,6 +1684,7 @@ function renderInteractiveChart(data, options = {}) {
 
          // 添加交互事件
      singleNodeGroup
+       // 双击节点：打开 topic 详情对话框（带 topics.json 数据）。
          .dblclick(async function(e) {
            e.stopPropagation();
            await showTopicDialogForNode(n);

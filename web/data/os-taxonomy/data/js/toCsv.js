@@ -86,6 +86,7 @@ function csvEscape(value) {
 
 for (const t of topics.topics) {
   topicMetaMap.set(t.id, {
+    name: String(t.name ?? "").trim(),
     subject: String(t.subject ?? "").trim(),
     domain: String(t.domain ?? "").trim()
   });
@@ -255,7 +256,8 @@ pipeline.on("end", () => {
 
     const rawLevel = levelByTopic.get(topicId) ?? 0;
     const level = normalizedTopicLevel.get(rawLevel) ?? 0;
-    const expression = `function() { return ${JSON.stringify(String(topicId ?? ""))}; }`;
+    const topicDisplayName = topicMetaMap.get(topicId)?.name || String(topicId ?? "");
+    const expression = `function() { return ${JSON.stringify(topicDisplayName)}; }`;
 
     const row = [topicName, prerequisiteName, expression, level].map(csvEscape).join(",");
     csv.write(`${row}\n`);
