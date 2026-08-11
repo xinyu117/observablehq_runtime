@@ -16,6 +16,7 @@ const osTaxonomyTopicsPath = path.join(dataDir, "os-taxonomy", "data", "topics.j
 const storage = new VariableStorage({dataDir});
 const frontOnlyStorage = new VariableStorage({dataDir: frontOnlyDataDir});
 let osTaxonomyTopicsByIdPromise = null;
+let osTaxonomyTopicsByNormalizedIdPromise = null;
 
 const MIME_BY_EXT = {
   ".html": "text/html; charset=utf-8",
@@ -55,6 +56,43 @@ async function getOsTaxonomyTopicsById() {
     });
   }
   return osTaxonomyTopicsByIdPromise;
+}
+
+function normalizeTopicId(id) {
+  return String(id || "").replace(/-/g, "_");
+}
+
+async function getOsTaxonomyTopicsByNormalizedId() {
+  if (!osTaxonomyTopicsByNormalizedIdPromise) {
+    osTaxonomyTopicsByNormalizedIdPromise = getOsTaxonomyTopicsById().then((topicsById) => {
+      const byNormalizedId = new Map();
+      const conflicts = new Set();
+
+      for (const [id, topic] of topicsById.entries()) {
+        const normalizedId = normalizeTopicId(id);
+        if (!normalizedId) continue;
+
+        if (!byNormalizedId.has(normalizedId)) {
+          byNormalizedId.set(normalizedId, topic);
+          continue;
+        }
+
+        const existing = byNormalizedId.get(normalizedId);
+        if (existing?.id !== id) {
+          conflicts.add(normalizedId);
+          byNormalizedId.delete(normalizedId);
+        }
+      }
+
+      for (const normalizedId of conflicts) {
+        byNormalizedId.delete(normalizedId);
+      }
+
+      return byNormalizedId;
+    });
+  }
+
+  return osTaxonomyTopicsByNormalizedIdPromise;
 }
 
 function getCollectionName(url) {
@@ -275,7 +313,12 @@ async function handleApi(req, res, url) {
     }
 
     const topicsById = await getOsTaxonomyTopicsById();
-    const topic = topicsById.get(topicId);
+    let topic = topicsById.get(topicId);
+    if (!topic) {
+      const topicsByNormalizedId = await getOsTaxonomyTopicsByNormalizedId();
+      topic = topicsByNormalizedId.get(normalizeTopicId(topicId));
+    }
+
     if (!topic) {
       sendJson(res, 404, {error: "未找到 topic", topicId});
       return;

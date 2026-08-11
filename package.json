@@ -22,7 +22,7 @@
   "scripts": {
     "test": "mocha 'test/**/*-test.js' && eslint src test",
     "web:start": "node web/server.js",
-    "web:dev": "node web/server.js"
+    "web:dev": "node --inspect-brk web/server.js"
   },
   "_moduleAliases": {
     "@observablehq/runtime": "./src/index.js"
