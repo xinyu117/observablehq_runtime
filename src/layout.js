@@ -1,4 +1,55 @@
 
+/**
+ * 取得矩形某条边的等分点坐标（可作为连接点使用）。
+ * @param {number} x 矩形中心X轴坐标
+ * @param {number} y 矩形中心Y轴坐标
+ * @param {number} width 矩形的宽度
+ * @param {number} height 矩形的高度
+ * @param {{position: 'left'|'top'|'right'|'bottom', divide: number}} edge
+ *        position: 矩形的哪一条边；divide: 几等分（返回 divide-1 个等分点）
+ * @returns {Array<{x: number, y: number}>} 等分点坐标数组
+ *
+ * 示例：
+ * getRectConnectionPoints(20, 20, 20, 10, {position: 'left', divide: 2})
+ *   => [{x: 10, y: 20}]            // 左边中点
+ * getRectConnectionPoints(20, 20, 20, 10, {position: 'left', divide: 3})
+ *   => [{x: 10, y: 18.33}, {x: 10, y: 21.67}]  // 左边三等分点
+ */
+export function getRectConnectionPoints(x, y, width, height, edge) {
+  const { position, divide } = edge;
+  if (!Number.isInteger(divide) || divide < 2) {
+    throw new Error(`divide 必须是 >= 2 的整数，当前值: ${divide}`);
+  }
+
+  const left = x - width / 2;
+  const right = x + width / 2;
+  const top = y - height / 2;
+  const bottom = y + height / 2;
+
+  const points = [];
+  for (let i = 1; i < divide; i++) {
+    const t = i / divide;
+    switch (position) {
+      case 'left':
+        points.push({ x: left, y: top + height * t });
+        break;
+      case 'right':
+        points.push({ x: right, y: top + height * t });
+        break;
+      case 'top':
+        points.push({ x: left + width * t, y: top });
+        break;
+      case 'bottom':
+      case 'botton': // 兼容拼写错误
+        points.push({ x: left + width * t, y: bottom });
+        break;
+      default:
+        throw new Error(`position 必须是 left/top/right/bottom 之一，当前值: ${position}`);
+    }
+  }
+  return points;
+}
+
 export function filterInputOnlyParents(levels) {
   const nodeIds = new Set(levels.reduce((acc, level) => {
     level.forEach((node) => acc.push(node.id));
@@ -103,10 +154,10 @@ export function constructTangleLayout(levels, options = {}) {
 
 
   // layout
-  const padding = options.padding ?? 8;
+  const padding = options.padding ?? 20;
   const node_height = options.node_height ?? 22;
   const node_width = options.node_width ?? 70;
-  const bundle_width = options.bundle_width ?? 14;
+  const bundle_width = options.bundle_width ?? node_width;
   const level_y_padding = options.level_y_padding ?? 16;
   const metro_d = options.metro_d ?? 4;
   const min_family_height = options.min_family_height ?? node_height;
@@ -123,10 +174,11 @@ export function constructTangleLayout(levels, options = {}) {
   var x_offset = padding;
   var y_offset = padding;
   levels.forEach(l => {
-    x_offset += l.bundles.length * bundle_width + 12; //线束之间是错开的，suchao: 12
+    x_offset += l.bundles.length * bundle_width; //线束之间是错开的，suchao: 12
     y_offset += level_y_padding;
     l.forEach((n, i) => {
       n.x = n.level * node_width + x_offset;
+      console.log("n.x:", n.x, "n.level:", n.level, "node_width:", node_width, "x_offset:", x_offset);
       n.y = node_height + y_offset + n.height / 2;
       y_offset += node_height + n.height + 10;  //suchao:10
     });
