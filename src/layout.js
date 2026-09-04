@@ -209,7 +209,7 @@ export function constructTangleLayout(levels, options = {}) {
   var i = 0;
   levels.forEach(l => {
     l.bundles.forEach(b => {
-      b.x = d3.max(b.toword_parents, d => d.x) + 2 * c + (l.bundles.length - b.i) * bundle_width;   // 线束上段终点的X值：根据以上父节点X的值算出；这个X比Target的x少一个bundle_width
+      b.x = d3.max(b.toword_parents, d => d.x) + node_width + 2 * c + (l.bundles.length - 1 - b.i) * bundle_width;   // 线束上段终点的X值：根据以上父节点X的值算出；这个X比Target的x少一个bundle_width
       b.y = i * node_height;
     });
     i += l.length;
