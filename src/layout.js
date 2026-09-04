@@ -1,4 +1,20 @@
-
+/**
+ * getRectConnectionPoints 的偏应用示例：
+ * 预先固定 y、width、height 以及 {position:'right', divide:2}，
+ * 返回一个只需传 x 的函数，用于取得矩形右边中点（2等分点）的坐标。
+ * @param {number} y 矩形中心Y轴坐标（固定）
+ * @param {number} width 矩形的宽度（固定）
+ * @param {number} height 矩形的高度（固定）
+ * @returns {(x: number) => Array<{x: number, y: number}>} 只接收中心X坐标的函数
+ *
+ * 示例：
+ * const rightMidAt = createRightMidPointGetter(20, 20, 10);
+ * rightMidAt(20) => [{x: 30, y: 20}]
+ * rightMidAt(50) => [{x: 60, y: 20}]
+ */
+export function createRightMidPointGetter(y, width, height) {
+  return (x) => getRectConnectionPoints(x, y, width, height, { position: 'right', divide: 2 });
+}
 /**
  * 取得矩形某条边的等分点坐标（可作为连接点使用）。
  * @param {number} x 矩形中心X轴坐标
@@ -155,16 +171,21 @@ export function constructTangleLayout(levels, options = {}) {
 
   // layout
   const padding = options.padding ?? 20;
+  const node_y_padding = 10; //node之间的垂直间隙
+  const node_width = options.node_width ?? 22;
   const node_height = options.node_height ?? 22;
-  const node_width = options.node_width ?? 70;
-  const bundle_width = options.bundle_width ?? node_width;
+  const bundle_width = options.bundle_width ?? 20;
   const level_y_padding = options.level_y_padding ?? 16;
-  const metro_d = options.metro_d ?? 4;
+  const metro_d = options.metro_d ?? 6;
   const min_family_height = options.min_family_height ?? node_height;
 
   options.c = options.c ?? 16;
   const c = options.c;
-  options.bigc = options.bigc ?? node_width + c;
+
+  var level_width = Math.max(options.level_width ?? 0, node_width + 2 * c);
+  options.bigc = options.bigc ?? level_width - 2 * c;
+
+
 
   nodes.forEach(
     n => (n.height = (Math.max(1, n.bundles.length) - 1) * metro_d) //节点的高度：根据线束的个数
@@ -177,10 +198,10 @@ export function constructTangleLayout(levels, options = {}) {
     x_offset += l.bundles.length * bundle_width; //线束之间是错开的，suchao: 12
     y_offset += level_y_padding;
     l.forEach((n, i) => {
-      n.x = n.level * node_width + x_offset;
-      console.log("n.x:", n.x, "n.level:", n.level, "node_width:", node_width, "x_offset:", x_offset);
-      n.y = node_height + y_offset + n.height / 2;
-      y_offset += node_height + n.height + 10;  //suchao:10
+      n.x = n.level * level_width + x_offset;
+      console.log("n.x:", n.x, "n.level:", n.level, "level_width:", level_width, "x_offset:", x_offset);
+      n.y = node_y_padding + y_offset  + Math.max(node_height / 2, n.height / 2);
+      y_offset += node_y_padding + Math.max(node_height, n.height); // 之前全部node的高度和空隙的合
     });
   });
 
@@ -188,7 +209,7 @@ export function constructTangleLayout(levels, options = {}) {
   var i = 0;
   levels.forEach(l => {
     l.bundles.forEach(b => {
-      b.x = d3.max(b.toword_parents, d => d.x) + node_width + (l.bundles.length - 1 - b.i) * bundle_width;   // 线束上段终点的X值：根据以上父节点X的值算出；这个X比Target的x少一个bundle_width
+      b.x = d3.max(b.toword_parents, d => d.x) + 2 * c + (l.bundles.length - b.i) * bundle_width;   // 线束上段终点的X值：根据以上父节点X的值算出；这个X比Target的x少一个bundle_width
       b.y = i * node_height;
     });
     i += l.length;
@@ -226,14 +247,16 @@ export function constructTangleLayout(levels, options = {}) {
       metro_d / 2;
     l.ys = l.source.y;
     l.c1 = l.source.level - l.target.level > 1 ? Math.min(options.bigc, l.xb - l.xt, l.ys - l.yt) - c : c;
+    if(l.source.level - l.target.level > 1 )
+      console.log("l.c1:", l.c1, "l.xb - l.xt:", l.xb - l.xt, "l.ys - l.yt:", l.ys - l.yt);
     l.c2 = c;
   });
 
   var layout = {
-    width: d3.max(nodes, n => n.x) + node_width + 2 * padding,
+    width: d3.max(nodes, n => n.x) + level_width + 2 * padding,
     height: d3.max(nodes, n => n.y) + node_height / 2 + 2 * padding,
     node_height,
-    node_width,
+    level_width,
     bundle_width,
     level_y_padding,
     metro_d

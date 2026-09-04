@@ -1564,8 +1564,10 @@ function renderInteractiveChart(data, options = {}) {
   const background_color = 'white';
   const stroke_width = 5;
   const node_width = 30;
-  const node_height = 40;
+  const node_height = 60;
   const node_radius = 6;
+
+  const level_width = 90;
 
   const nextSignature = createLevelsSignature(data, {filterInputOnlyParents: true});
   // 签名不变时复用现有图，减少不必要的 SVG 重建。
@@ -1578,6 +1580,7 @@ function renderInteractiveChart(data, options = {}) {
     node_width,
     node_height,
     orderBy:"levelInBundle",
+    level_width,
     min_family_height: Math.max(node_height, 22),
     filterInputOnlyParents: true
   };
@@ -1662,7 +1665,7 @@ function renderInteractiveChart(data, options = {}) {
     const nodeVisualHeight = Math.max(layoutNodeHeight, n.height);
 
     const nodeRect = singleNodeGroup.rect(layoutNodeWidth, nodeVisualHeight)
-        .center(n.x, n.y)
+        .move(n.x, n.y - nodeVisualHeight / 2)
         .radius(node_radius)
         .fill('white')
         .stroke({color: 'black', width: 2});
