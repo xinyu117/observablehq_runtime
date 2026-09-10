@@ -170,11 +170,11 @@ export function constructTangleLayout(levels, options = {}) {
 
 
   // layout
-  const padding = options.padding ?? 20;
+  const padding = options.padding ?? 60;
   const node_y_padding = 10; //node之间的垂直间隙
   const node_width = options.node_width ?? 22;
   const node_height = options.node_height ?? 22;
-  const bundle_width = options.bundle_width ?? 20;
+  const bundle_width = options.bundle_width ?? 20; //bundle之间的距离
   const level_y_padding = options.level_y_padding ?? 16;
   const metro_d = options.metro_d ?? 6;
   const min_family_height = options.min_family_height ?? node_height;
@@ -182,39 +182,39 @@ export function constructTangleLayout(levels, options = {}) {
   options.c = options.c ?? 16;
   const c = options.c;
 
-  var level_width = Math.max(options.level_width ?? 0, node_width + 2 * c);
+  var level_width = Math.max(options.level_width ?? 0, node_width + 2 * c); //因为节点本身宽度加两个弯折是level最小宽度
   options.bigc = options.bigc ?? level_width - 2 * c;
 
 
-
+  // 1.节点高度的算出
   nodes.forEach(
     n => (n.height = (Math.max(1, n.bundles.length) - 1) * metro_d) //节点的高度：根据线束的个数
   );
 
-  // 节点XY的值算出
+  // 2.节点XY的值算出
   var x_offset = padding;
   var y_offset = padding;
   levels.forEach(l => {
-    x_offset += l.bundles.length * bundle_width; //线束之间是错开的，suchao: 12
+    x_offset += l.bundles.length * bundle_width;
     y_offset += level_y_padding;
     l.forEach((n, i) => {
       n.x = n.level * level_width + x_offset;
-      console.log("n.x:", n.x, "n.level:", n.level, "level_width:", level_width, "x_offset:", x_offset);
-      n.y = node_y_padding + y_offset  + Math.max(node_height / 2, n.height / 2);
+      n.y = node_y_padding + y_offset;
       y_offset += node_y_padding + Math.max(node_height, n.height); // 之前全部node的高度和空隙的合
     });
   });
 
-
+  // 3.线束中垂直线XY的值算出
   var i = 0;
   levels.forEach(l => {
     l.bundles.forEach(b => {
-      b.x = d3.max(b.toword_parents, d => d.x) + node_width + 2 * c + (l.bundles.length - 1 - b.i) * bundle_width;   // 线束上段终点的X值：根据以上父节点X的值算出；这个X比Target的x少一个bundle_width
+      b.x = d3.max(b.toword_parents, d => d.x) + node_width + 2 * c + (l.bundles.length - 1 - b.i) * bundle_width;   // 线束中垂直线的X值：根据以上父节点X的值算出；这个X比Target的x少一个bundle_width
       b.y = i * node_height;
     });
     i += l.length;
   });
 
+  // 4.用以上节点XY和线束中垂直线XY，算出link的path参数值
   links.forEach(l => {
     l.xt = l.target.x; //线束上段起点的X值：target节点的X值
     l.yt =
@@ -222,13 +222,13 @@ export function constructTangleLayout(levels, options = {}) {
       l.target.bundles.find((obj) => obj.id === l.bundle.id).jj * metro_d -
       (l.target.bundles.length * metro_d) / 2 +
       metro_d / 2;
-    l.xb = l.bundle.x; //线束上段终点的X值，以上的b.x
-    l.yb = l.bundle.y;
+    l.xb = l.bundle.x; //线束中垂直线的X值，以上的b.x
+    l.yb = l.bundle.y; //在以后的画图中没有上
     l.xs = l.source.x; //线束下段终点的X值：source节点的X值
     l.ys = l.source.y;
   });
 
-  // compress vertical space 压缩垂直方向空间，如果不压缩level间的Y是依次递增的，压缩后level间有重合的部分；以下计算可以保证：source节点不会高于target节点
+  // 5.压缩节点垂直方向空间。如果不压缩level间的Y是依次递增的，压缩后level间有重合的部分；以下计算可以保证：source节点不会高于target节点
   var y_negative_offset = 0;
   levels.forEach(l => {
     y_negative_offset += -min_family_height +
@@ -238,7 +238,7 @@ export function constructTangleLayout(levels, options = {}) {
     l.forEach(n => (n.y -= y_negative_offset));
   });
 
-  // very ugly, I know
+  // 6.压缩线条垂直方向空间。 以上节点被压缩了，线条的位置跟着要再次计算
   links.forEach(l => {
     l.yt =
       l.target.y +
@@ -247,8 +247,6 @@ export function constructTangleLayout(levels, options = {}) {
       metro_d / 2;
     l.ys = l.source.y;
     l.c1 = l.source.level - l.target.level > 1 ? Math.min(options.bigc, l.xb - l.xt, l.ys - l.yt) - c : c;
-    if(l.source.level - l.target.level > 1 )
-      console.log("l.c1:", l.c1, "l.xb - l.xt:", l.xb - l.xt, "l.ys - l.yt:", l.ys - l.yt);
     l.c2 = c;
   });
 
