@@ -167,7 +167,7 @@
               "level": "4"
             }
           },
-          "expression": "function() {}"
+          "expression": "async function* values() {\n    let i = 0;\n\n    while (true) {\n        await new Promise(resolve => setTimeout(resolve, 1000));\n        yield ++i;\n    }\n}"
         },
         {
           "name": "Aeneas",

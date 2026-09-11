@@ -1,4 +1,4 @@
-﻿import {Runtime, constructTangleLayout} from "/runtime-src/index.js";
+import {Runtime, constructTangleLayout} from "/runtime-src/index.js";
 import {SVG} from "./svg.js";
 import {dialogManager} from "./DialogManager.js";
 
@@ -1567,7 +1567,7 @@ function renderInteractiveChart(data, options = {}) {
   const node_height = 60;
   const node_radius = 6;
 
-  const level_width = 90;
+  const level_width = 30;
 
   const nextSignature = createLevelsSignature(data, {filterInputOnlyParents: true});
   // 签名不变时复用现有图，减少不必要的 SVG 重建。
